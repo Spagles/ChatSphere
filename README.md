@@ -1,10 +1,11 @@
 # ChatSphere
 
+![UI](https://cdn.modrinth.com/data/cached_images/c3c31427b47c241789f88284f35c5946f68c02d1_0.webp)
 ---
 
 ## Introduction
 
-**ChatSphere** is a mod that completely overhauls Minecraft's vanilla chat system, delivering a modern, instant-messaging-style experience. Create custom channels, message players privately, execute commands through a graphical interface, and stay notified with sounds, icon flashes, and pop-ups when new messages arrive—all in a clean, organized layout.
+**ChatSphere** is a mod that completely overhauls Minecraft's vanilla chat system, delivering a modern, instant-messaging-style experience. Create custom channels, message players privately, execute commands through a graphical interface, and stay notified with sounds—all in a clean, organized layout.
 
 ---
 
@@ -12,7 +13,7 @@
 
 | Feature | Description |
 |---------|-------------|
-| **Channel System** | Create public or private channels with customizable names, descriptions, admins, and mute lists |
+| **Channel System** | Create public or private channels with customizable names and descriptions|
 | **Private Messaging** | Click any player name in the right sidebar to start a private chat, with `/msg` and `/tell` support |
 | **Command Console** | Type commands starting with `/` directly in the chat interface; outputs appear in a dedicated console session |
 | **Graphical Settings** | Press `F7` to open the settings menu—toggle timestamps, sender names, avatars, and notification styles |
