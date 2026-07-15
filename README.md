@@ -1,3 +1,5 @@
+![Views](https://komarev.com/ghpvc/?username=mcraftbbs&repo=ChatSphere&label=Views&color=brightgreen)
+
 # ChatSphere
 
 ![UI](https://cdn.modrinth.com/data/cached_images/c3c31427b47c241789f88284f35c5946f68c02d1_0.webp)
