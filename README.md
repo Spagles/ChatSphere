@@ -2,7 +2,7 @@
 
 # ChatSphere
 
-![UI](https://cdn.modrinth.com/data/cached_images/c3c31427b47c241789f88284f35c5946f68c02d1_0.webp)
+![ChatSphere](https://cdn.modrinth.com/data/cached_images/8cc6c14cc43b82f8053acb11d80eed267154bdab_0.webp)
 
 A modern instant-messaging chat mod for Minecraft NeoForge (1.21.1). Replaces the vanilla chat with channels, private messaging, voice rooms, emoji, and a full GUI.
 
@@ -101,7 +101,7 @@ The main chat screen (`ModChatScreen`) is divided into:
 - Click `→` and enter the invite code
 - Click the search icon to browse public channels via the **Explore** screen
 
-### Management (gear icon ⚙ — owner only)
+### Management (gear icon ⚙)
 - **General tab:** display name, description, public/private toggle, show in explore toggle, invite code (regen)
 - **Members tab:** member list with admin badges, online indicators; promote/demote admin, mute/unmute, kick, transfer ownership
 - **Voice tab:** create/delete voice rooms; join/leave per room
