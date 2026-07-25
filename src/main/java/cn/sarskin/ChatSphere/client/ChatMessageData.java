@@ -1,18 +1,62 @@
 package cn.sarskin.ChatSphere.client;
 
+import cn.sarskin.ChatSphere.client.emoji.EmojiRegistry;
+import cn.sarskin.ChatSphere.config.ModClientConfig;
 import net.minecraft.network.chat.Component;
 
 import java.util.UUID;
 
-public record ChatMessageData(
-        Component senderName,
-        UUID senderUuid,
-        Component content,
-        long timestamp,
-        String conversationId,
-        ConversationType conversationType,
-        boolean isOwn
-) {
+public class ChatMessageData {
+    private final Component senderName;
+    private final UUID senderUuid;
+    private final Component content;
+    private final Component renderedContent;
+    private final long timestamp;
+    private final String conversationId;
+    private final ConversationType conversationType;
+    private final boolean isOwn;
+    private int duplicateCount;
+    private String replyContent;
+    private String replySender;
+
+    public ChatMessageData(Component senderName, UUID senderUuid, Component content,
+                           long timestamp, String conversationId,
+                           ConversationType conversationType, boolean isOwn) {
+        this.senderName = senderName;
+        this.senderUuid = senderUuid;
+        this.content = content;
+        this.timestamp = timestamp;
+        this.conversationId = conversationId;
+        this.conversationType = conversationType;
+        this.isOwn = isOwn;
+        this.duplicateCount = 1;
+        this.renderedContent = ModClientConfig.CONFIG.renderEmojiShortcodes.get()
+                ? EmojiRegistry.toComponent(EmojiRegistry.replaceShortcodes(content.getString()))
+                : content;
+    }
+
+    public ChatMessageData withReply(String replyContent, String replySender) {
+        ChatMessageData copy = new ChatMessageData(senderName, senderUuid, content,
+                timestamp, conversationId, conversationType, isOwn);
+        copy.duplicateCount = this.duplicateCount;
+        copy.replyContent = replyContent;
+        copy.replySender = replySender;
+        return copy;
+    }
+
+    public Component senderName() { return senderName; }
+    public UUID senderUuid() { return senderUuid; }
+    public Component content() { return content; }
+    public Component renderedContent() { return renderedContent; }
+    public long timestamp() { return timestamp; }
+    public String conversationId() { return conversationId; }
+    public ConversationType conversationType() { return conversationType; }
+    public boolean isOwn() { return isOwn; }
+    public int duplicateCount() { return duplicateCount; }
+    public void setDuplicateCount(int count) { this.duplicateCount = count; }
+    public String replyContent() { return replyContent; }
+    public String replySender() { return replySender; }
+
     public enum ConversationType {
         CHANNEL, PRIVATE, COMMAND
     }

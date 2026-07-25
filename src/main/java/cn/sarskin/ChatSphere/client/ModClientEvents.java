@@ -25,6 +25,8 @@ public class ModClientEvents {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
+        ChatHintsManager.getInstance().tick();
+
         while (mc.options.keyChat.consumeClick()) {
             mc.setScreen(new ModChatScreen(""));
         }
@@ -40,7 +42,9 @@ public class ModClientEvents {
 
     @SubscribeEvent
     public static void onClientDisconnect(ClientPlayerNetworkEvent.LoggingOut event) {
-        ChatHistoryManager.getInstance().setServerConnected(false);
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        history.saveNow();
+        history.setServerConnected(false);
     }
 
     @SubscribeEvent
@@ -54,25 +58,14 @@ public class ModClientEvents {
         Component message = event.getMessage();
         UUID sender = event.getSender();
 
-        // System messages (including command feedback)
-        if (event instanceof ClientChatReceivedEvent.System sys) {
-            if (sys.isOverlay()) return;
-            ChatHistoryManager history = ChatHistoryManager.getInstance();
-            long now = System.currentTimeMillis();
-            if (now - lastCommandTime < 5000) {
-                history.addCommandMessage(
-                        message,
-                        sender,
-                        Component.literal(""),
-                        false);
-            } else {
-                String msgText = message.getString().trim();
-                history.addCommandMessage(
-                        Component.literal(msgText.isEmpty() ? message.getString() : msgText),
-                        sender,
-                        Component.literal(""),
-                        false);
+        // ALL system messages (screenshots, command feedback, overlays, etc.) → COMMAND console
+        if (event.isSystem()) {
+            // For system events from ChatListener, get the overlay flag
+            if (event instanceof ClientChatReceivedEvent.System sys && sys.isOverlay()) {
+                return;
             }
+            ChatHistoryManager history = ChatHistoryManager.getInstance();
+            history.addCommandMessage(message, sender, Component.literal(""), false);
             return;
         }
 
@@ -131,7 +124,7 @@ public class ModClientEvents {
             }
         }
 
-        // All other messages go to default channel
+        // Standard player chat goes to default channel
         history.addMessage(senderName, sender, Component.literal(content),
                 ChatHistoryManager.DEFAULT_CHANNEL_ID, ChatMessageData.ConversationType.CHANNEL, false);
     }

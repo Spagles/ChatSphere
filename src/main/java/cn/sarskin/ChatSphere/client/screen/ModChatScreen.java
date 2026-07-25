@@ -1,10 +1,18 @@
 package cn.sarskin.ChatSphere.client.screen;
 
 import cn.sarskin.ChatSphere.ModMain;
-import cn.sarskin.ChatSphere.client.ChatDataStore;
 import cn.sarskin.ChatSphere.client.ChatHistoryManager;
 import cn.sarskin.ChatSphere.client.ChatMessageData;
 import cn.sarskin.ChatSphere.config.ModClientConfig;
+import cn.sarskin.ChatSphere.config.ModServerConfig;
+import cn.sarskin.ChatSphere.client.widget.EmojiPanel;
+import cn.sarskin.ChatSphere.client.widget.EmojiAutoComplete;
+import cn.sarskin.ChatSphere.client.emoji.EmojiRegistry;
+import cn.sarskin.ChatSphere.client.widget.MentionPopup;
+import cn.sarskin.ChatSphere.client.widget.QuickPhrasesPanel;
+import cn.sarskin.ChatSphere.client.widget.ReplyBarWidget;
+import cn.sarskin.ChatSphere.client.widget.CopyToast;
+import cn.sarskin.ChatSphere.client.PlayerSkinCache;
 import cn.sarskin.ChatSphere.network.ServerboundChannelActionPayload;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -12,16 +20,15 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.CommandSuggestions;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
-import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
 
-import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class ModChatScreen extends Screen {
@@ -29,15 +36,28 @@ public class ModChatScreen extends Screen {
     private static final int MAX_MESSAGE_LENGTH = 256;
     private static final int SIDEBAR_WIDTH = 100;
     private static final int HEADER_BAR_HEIGHT = 14;
+    private static final int MUTE_BAR_H = 14;
     private static final int AVATAR_SIZE = 10;
     private static final int SIDEBAR_AVATAR_SIZE = 12;
     private static final int BUBBLE_HPAD = 8;
     private static final int BUBBLE_VPAD = 4;
     private static final int SIDEBAR_ITEM_HEIGHT = 18;
     private static final int CONFIG_ICON_SIZE = 10;
-    private static final int RIGHT_SIDEBAR_WIDTH = 80;
+    private static final int TOOLBAR_HEIGHT = 14;
+    private static final int NOTIF_BAR_H = 18;
+    private static final int MESSAGE_BOTTOM_PAD = 10;
     private static final ResourceLocation SETTINGS_ICON = ResourceLocation.fromNamespaceAndPath(
             ModMain.MODID, "textures/gui/settings_gear.png");
+    private static final ResourceLocation EMOJI_ICON = ResourceLocation.fromNamespaceAndPath(
+            ModMain.MODID, "textures/gui/emoji.png");
+    private static final ResourceLocation QUICK_PHRASES_ICON = ResourceLocation.fromNamespaceAndPath(
+            ModMain.MODID, "textures/gui/quick_phrases.png");
+    private static final ResourceLocation SEARCH_ICON = ResourceLocation.fromNamespaceAndPath(
+            ModMain.MODID, "textures/gui/search.png");
+    private static final ResourceLocation JOIN_CHANNEL_ICON = ResourceLocation.fromNamespaceAndPath(
+            ModMain.MODID, "textures/gui/join_channel.png");
+    private static final ResourceLocation CREATE_CHANNEL_ICON = ResourceLocation.fromNamespaceAndPath(
+            ModMain.MODID, "textures/gui/create_channel.png");
 
     private EditBox input;
     private String initial;
@@ -51,7 +71,30 @@ public class ModChatScreen extends Screen {
 
     private final List<SidebarEntry> sidebarEntries = new ArrayList<>();
     private final Map<String, PlayerInfo> onlinePlayers = new LinkedHashMap<>();
-    private boolean showRightSidebar = ModClientConfig.CONFIG.showRightSidebar.get();
+
+    private final EmojiPanel emojiPanel = new EmojiPanel();
+    private final EmojiAutoComplete emojiAutoComplete = new EmojiAutoComplete();
+    private final QuickPhrasesPanel quickPhrasesPanel = new QuickPhrasesPanel();
+    private final MentionPopup mentionPopup = new MentionPopup();
+    private final ReplyBarWidget replyBar = new ReplyBarWidget();
+    private final CopyToast copyToast = new CopyToast();
+    private boolean showSearch;
+    private EditBox searchInput;
+    private String searchQuery = "";
+    private List<Integer> searchResults = new ArrayList<>();
+    private int searchResultIndex = -1;
+    private int contextMsgIndex = -1;
+    private int contextMenuX;
+    private int contextMenuY;
+    private int replyHighlightTarget = -1;
+    private final List<CommandHit> cmdHitBoxes = new ArrayList<>();
+    private final List<BubbleHit> bubbleHitBoxes = new ArrayList<>();
+    private final List<ReplyQuoteHit> replyQuoteHitBoxes = new ArrayList<>();
+    private int notifBarY;
+
+    private record CommandHit(int x, int y, int w, int h, Component component) {}
+    private record BubbleHit(int x, int y, int w, int h, int globalIndex) {}
+    private record ReplyQuoteHit(int x, int y, int w, int h, String replySender, String replyContent) {}
 
     public ModChatScreen(String initial) {
         super(Component.translatable("screen.chatsphere.mod_chat.title"));
@@ -65,6 +108,7 @@ public class ModChatScreen extends Screen {
         ChatHistoryManager history = ChatHistoryManager.getInstance();
         history.load();
         history.ensureDefaultChannel();
+        history.refreshPrivateConversationDisplayNames();
         if (!history.getChannels().contains(currentConversation)
                 && !COMMAND_CONVERSATION_ID.equals(currentConversation)) {
             List<String> channels = history.getChannels();
@@ -77,28 +121,43 @@ public class ModChatScreen extends Screen {
             cmdHistoryEntries.addAll(history.getCommandHistory(this.minecraft.player.getUUID()));
             cmdHistoryPos = cmdHistoryEntries.size();
             this.initial = this.initial.substring(1);
+        } else if (this.initial.isEmpty() && ModClientConfig.CONFIG.preserveInput.get()) {
+            String saved = history.getSavedInput();
+            if (saved != null && !saved.isEmpty()) this.initial = saved;
         }
 
-        int inputY = this.height - 12;
         int inputX = SIDEBAR_WIDTH + 2;
         int inputWidth = this.width - SIDEBAR_WIDTH - 6;
-        if (showRightSidebar) inputWidth -= RIGHT_SIDEBAR_WIDTH;
-        this.input = new EditBox(this.minecraft.fontFilterFishy, inputX, inputY,
+        this.input = new EditBox(this.minecraft.font, inputX, this.height - 12,
                 inputWidth, 12,
                 Component.translatable("chat.editBox"));
         this.input.setMaxLength(MAX_MESSAGE_LENGTH);
         this.input.setBordered(false);
         this.input.setValue(this.initial);
+        if (!COMMAND_CONVERSATION_ID.equals(currentConversation))
+            this.input.setTextColor(0xFFFFFFFF);
+        this.input.setResponder(this::onCommandInputChanged);
+        this.input.setFormatter((text, cursor) -> EmojiRegistry.toFormattedCharSequence(text));
         this.addWidget(this.input);
         this.setInitialFocus(this.input);
 
         this.commandSuggestions = new CommandSuggestions(this.minecraft, this, this.input, this.font,
                 true, false, 1, 10, true, -805306368);
         this.commandSuggestions.setAllowHiding(false);
-        this.commandSuggestions.updateCommandInfo();
-        this.input.setResponder(this::onCommandInputChanged);
+        if (COMMAND_CONVERSATION_ID.equals(currentConversation))
+            this.commandSuggestions.updateCommandInfo();
+
+        this.searchInput = new EditBox(this.font, SIDEBAR_WIDTH + 4, HEADER_BAR_HEIGHT + 8,
+                Math.max(80, width - SIDEBAR_WIDTH - 30), 14,
+                Component.translatable("screen.chatsphere.search.hint"));
+        this.searchInput.setMaxLength(64);
+        this.searchInput.setBordered(true);
+        this.searchInput.setVisible(false);
+        this.searchInput.setResponder(this::onSearchChanged);
+        this.addWidget(this.searchInput);
 
         refreshOnlinePlayers();
+        try { minecraft.gameRenderer.loadEffect(ResourceLocation.fromNamespaceAndPath("minecraft", "shaders/post/blur.json")); } catch (Exception ignored) {}
     }
 
     private void refreshOnlinePlayers() {
@@ -112,10 +171,23 @@ public class ModChatScreen extends Screen {
     }
 
     private void onCommandInputChanged(String value) {
-        if (this.commandSuggestions != null) {
+        if (this.commandSuggestions != null && COMMAND_CONVERSATION_ID.equals(currentConversation)) {
             this.commandSuggestions.setAllowSuggestions(true);
             this.commandSuggestions.updateCommandInfo();
         }
+        mentionPopup.update(value, onlinePlayers);
+    }
+
+    private void onSearchChanged(String query) {
+        searchQuery = query;
+        if (query.isEmpty()) {
+            searchResults = List.of();
+            searchResultIndex = -1;
+            return;
+        }
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        searchResults = history.searchMessages(currentConversation, query);
+        searchResultIndex = searchResults.isEmpty() ? -1 : 0;
     }
 
     @Override
@@ -123,58 +195,175 @@ public class ModChatScreen extends Screen {
         super.tick();
         refreshOnlinePlayers();
         ChatHistoryManager.getInstance().refreshPrivateConversationDisplayNames();
+        copyToast.tick();
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         if (button == 0) {
-            boolean showRight = showRightSidebar && ChatHistoryManager.getInstance().getConversationType(currentConversation) == ChatMessageData.ConversationType.CHANNEL;
-            int effectiveWidth = showRight ? this.width - RIGHT_SIDEBAR_WIDTH : this.width;
-            int btnX = showRight ? effectiveWidth - 10 : this.width - 10;
-            int btnY = 4;
-            if (mouseX >= btnX && mouseX <= btnX + 10 && mouseY >= btnY && mouseY <= btnY + 30) {
-                showRightSidebar = !showRightSidebar;
-                ModClientConfig.CONFIG.showRightSidebar.set(showRightSidebar);
+            // Search bar interactions
+            if (showSearch && searchInput != null && searchInput.isVisible()) {
+                int barY = HEADER_BAR_HEIGHT + 6;
+                int barH = 20;
+                int areaLeft = SIDEBAR_WIDTH + 2;
+                int areaRight = this.width;
+                if (mouseX >= searchInput.getX() && mouseX <= searchInput.getX() + searchInput.getWidth()
+                        && mouseY >= searchInput.getY() && mouseY <= searchInput.getY() + searchInput.getHeight()) {
+                    setFocused(searchInput);
+                    input.setFocused(false);
+                    return true;
+                }
+                int closeX = areaRight - 18;
+                if (mouseX >= closeX && mouseX <= closeX + 14 && mouseY >= barY + 3 && mouseY <= barY + 17) {
+                    showSearch = false;
+                    searchInput.setVisible(false);
+                    searchQuery = "";
+                    searchResults = List.of();
+                    searchResultIndex = -1;
+                    setFocused(input);
+                    return true;
+                }
+                if (!searchResults.isEmpty() && mouseY >= barY && mouseY <= barY + barH && mouseX >= areaLeft && mouseX <= closeX) {
+                    searchResultIndex = (searchResultIndex + 1) % searchResults.size();
+                    scrollToMessageIndex(searchResults.get(searchResultIndex));
+                    return true;
+                }
+            }
+
+            // Toolbar buttons
+            int toolbarY = this.height - 14 - TOOLBAR_HEIGHT;
+            int btnH = TOOLBAR_HEIGHT - 2;
+            int btnY = toolbarY + 1;
+            if (mouseY >= toolbarY && mouseY <= toolbarY + TOOLBAR_HEIGHT) {
+                int btnX = SIDEBAR_WIDTH + 4;
+                if (mouseX >= btnX && mouseX <= btnX + btnH) {
+                    emojiPanel.toggle();
+                    quickPhrasesPanel.visible = false;
+                    return true;
+                }
+                btnX += btnH + 2;
+                if (mouseX >= btnX && mouseX <= btnX + btnH) {
+                    quickPhrasesPanel.toggle();
+                    emojiPanel.visible = false;
+                    return true;
+                }
+                btnX += btnH + 2;
+                if (mouseX >= btnX && mouseX <= btnX + btnH) {
+                    showSearch = !showSearch;
+                    searchInput.setVisible(showSearch);
+                    if (showSearch) { setFocused(searchInput); input.setFocused(false); }
+                    else { setFocused(input); }
+                    emojiPanel.visible = false;
+                    quickPhrasesPanel.visible = false;
+                    return true;
+                }
+            }
+
+            // Emoji panel click
+            int emojiPanelX = SIDEBAR_WIDTH + 4;
+            int emojiPanelY = this.height - 14 - TOOLBAR_HEIGHT - EmojiPanel.PANEL_H - 4;
+            if (emojiPanel.mouseClicked(mouseX, mouseY, button, emojiPanelX, emojiPanelY, input)) return true;
+
+            // Quick phrases panel click
+            int qpPanelY = this.height - 14 - TOOLBAR_HEIGHT - 4 - Math.min(ModClientConfig.CONFIG.quickPhrases.get().size(), 6) * 18;
+            if (quickPhrasesPanel.mouseClicked(mouseX, mouseY, button, SIDEBAR_WIDTH + 4, qpPanelY, input)) return true;
+
+            // Reply bar
+            if (replyBar.mouseClicked(mouseX, mouseY, SIDEBAR_WIDTH, this.width, 0, false)) {
+                replyHighlightTarget = -1;
                 return true;
             }
-            if (showRight && mouseX >= effectiveWidth && mouseX < this.width && mouseY > 18) {
-                ChatHistoryManager history = ChatHistoryManager.getInstance();
-                ChatDataStore.ChannelConfig cfg = history.getChannelConfig(currentConversation);
-                Minecraft mc = Minecraft.getInstance();
-                String localPlayerUuid = mc.player != null ? mc.player.getUUID().toString() : null;
-                int y = 18;
-                for (Map.Entry<String, PlayerInfo> entry : onlinePlayers.entrySet()) {
-                    String uuid = entry.getKey();
-                    boolean isChannelMember = cfg.members.contains(uuid);
-                    if (!isChannelMember && !uuid.equals(localPlayerUuid) && !uuid.equals(cfg.owner) && !cfg.admins.contains(uuid)) {
-                        y += 10;
-                        continue;
-                    }
-                    if (mouseY >= y && mouseY < y + 10) {
-                        if (localPlayerUuid != null && !uuid.equals(localPlayerUuid)) {
-                            UUID localUuid = mc.player.getUUID();
-                            UUID targetUuid = UUID.fromString(uuid);
-                            String convId = localUuid.compareTo(targetUuid) < 0
-                                    ? localUuid + ":" + targetUuid
-                                    : targetUuid + ":" + localUuid;
-                            String targetName = entry.getValue().getProfile().getName();
-                            history.addPrivateConversation(convId, Component.literal(targetName));
-                            currentConversation = convId;
-                            scrollOffset = 0;
+            if (replyBar.isOnBody(mouseX, mouseY, SIDEBAR_WIDTH, this.width, 0, false)) {
+                replyHighlightTarget = replyBar.targetIndex;
+                scrollToMessageIndex(replyBar.targetIndex);
+                return true;
+            }
+
+            // Reply quote click inside message bubbles
+            synchronized (replyQuoteHitBoxes) {
+                for (ReplyQuoteHit hit : replyQuoteHitBoxes) {
+                    if (mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h) {
+                        ChatHistoryManager history = ChatHistoryManager.getInstance();
+                        List<ChatMessageData> msgs = history.getMessagesByConversation(currentConversation);
+                        for (int i = msgs.size() - 1; i >= 0; i--) {
+                            ChatMessageData m = msgs.get(i);
+                            if (m.senderName().getString().equals(hit.replySender) && m.content().getString().equals(hit.replyContent)) {
+                                replyHighlightTarget = history.getMessageIndex(m);
+                                scrollToMessageIndex(replyHighlightTarget);
+                                return true;
+                            }
                         }
-                        return true;
                     }
-                    y += 10;
-                    if (y > height - 10) break;
+                }
+            }
+
+            // Mention popup click
+            if (mentionPopup.mouseClicked(mouseX, mouseY, button, input)) return true;
+
+            // Emoji autocomplete click
+            if (emojiAutoComplete.mouseClicked(mouseX, mouseY, button, input)) return true;
+        }
+
+        // Clickable command components (button == 0)
+        if (button == 0 && COMMAND_CONVERSATION_ID.equals(currentConversation)) {
+            synchronized (cmdHitBoxes) {
+                for (CommandHit hit : cmdHitBoxes) {
+                    if (mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h) {
+                        int relX = (int) mouseX - hit.x;
+                        Style style = minecraft.font.getSplitter().componentStyleAtWidth(hit.component, relX);
+                        if (style != null && style.getClickEvent() != null) {
+                            net.minecraft.network.chat.ClickEvent click = style.getClickEvent();
+                            switch (click.getAction()) {
+                                case OPEN_URL -> net.minecraft.Util.getPlatform().openUri(click.getValue());
+                                case OPEN_FILE -> net.minecraft.Util.getPlatform().openFile(new java.io.File(click.getValue()));
+                                case RUN_COMMAND -> {
+                                    String cmd = click.getValue();
+                                    minecraft.player.connection.sendCommand(cmd.startsWith("/") ? cmd.substring(1) : cmd);
+                                }
+                                case SUGGEST_COMMAND -> {
+                                    input.setValue(click.getValue());
+                                    input.moveCursorToEnd(false);
+                                    setFocused(input);
+                                }
+                                case COPY_TO_CLIPBOARD -> minecraft.keyboardHandler.setClipboard(click.getValue());
+                            }
+                            return true;
+                        }
+                    }
                 }
             }
         }
 
+        // Right-click context menu on bubbles (uses bubbleHitBoxes built during renderMessages)
+        if (button == 1) {
+            synchronized (bubbleHitBoxes) {
+                for (int i = bubbleHitBoxes.size() - 1; i >= 0; i--) {
+                    BubbleHit hit = bubbleHitBoxes.get(i);
+                    if (mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h) {
+                        contextMsgIndex = hit.globalIndex;
+                        contextMenuX = (int) mouseX;
+                        contextMenuY = (int) mouseY;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Context menu click (button 0)
+        if (button == 0 && contextMsgIndex >= 0) {
+            handleContextMenuClick((int) mouseX, (int) mouseY);
+            return true;
+        }
+        if (contextMsgIndex >= 0) { contextMsgIndex = -1; return true; }
+
+        // Command suggestions
         if (COMMAND_CONVERSATION_ID.equals(currentConversation)
                 && this.commandSuggestions != null
                 && this.commandSuggestions.mouseClicked(mouseX, mouseY, button)) {
             return true;
         }
+
+        // Sidebar click
         if (button == 0 && mouseX < SIDEBAR_WIDTH) {
             int yOffset = 10;
             int headerIdx = 0;
@@ -185,17 +374,17 @@ public class ModChatScreen extends Screen {
                         int plusX = SIDEBAR_WIDTH - 6 - 10;
                         int plusY = yOffset + (SIDEBAR_ITEM_HEIGHT - 8) / 2;
                         if (mouseX >= plusX && mouseX <= plusX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
-                            if (this.minecraft != null) {
-                                this.minecraft.setScreen(new CreateChannelScreen(this));
-                            }
+                            if (this.minecraft != null) { this.onClose(); this.minecraft.setScreen(new CreateChannelScreen(this)); }
                             return true;
                         }
                         int joinX = plusX - 14;
-                        int joinY = plusY;
-                        if (mouseX >= joinX && mouseX <= joinX + 10 && mouseY >= joinY && mouseY <= joinY + 10) {
-                            if (this.minecraft != null) {
-                                this.minecraft.setScreen(new JoinChannelScreen(this));
-                            }
+                        if (mouseX >= joinX && mouseX <= joinX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
+                            if (this.minecraft != null) { this.onClose(); this.minecraft.setScreen(new JoinChannelScreen(this)); }
+                            return true;
+                        }
+                        int exploreX = joinX - 14;
+                        if (mouseX >= exploreX && mouseX <= exploreX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
+                            if (this.minecraft != null) { this.onClose(); this.minecraft.setScreen(new ExploreServersScreen(this)); }
                             return true;
                         }
                     }
@@ -208,10 +397,12 @@ public class ModChatScreen extends Screen {
                         int gearX = SIDEBAR_WIDTH - 6 - CONFIG_ICON_SIZE;
                         if (mouseX >= gearX && mouseX <= gearX + CONFIG_ICON_SIZE) {
                             if (this.minecraft != null) {
-                                ChatHistoryManager hist = ChatHistoryManager.getInstance();
                                 UUID playerUuid = this.minecraft.player.getUUID();
+                                ChatHistoryManager hist = ChatHistoryManager.getInstance();
                                 if (hist.isOwner(entry.conversationId, playerUuid) || hist.isAdmin(entry.conversationId, playerUuid)) {
-                                    this.minecraft.setScreen(new ChannelConfigScreen(this, entry.conversationId));
+                                    this.onClose(); this.minecraft.setScreen(new ChannelConfigScreen(this, entry.conversationId));
+                                } else {
+                                    this.onClose(); this.minecraft.setScreen(new ChannelInfoScreen(this, entry.conversationId));
                                 }
                             }
                             return true;
@@ -232,19 +423,42 @@ public class ModChatScreen extends Screen {
                         }
                         currentConversation = entry.conversationId;
                         scrollOffset = 0;
+                        if (!searchQuery.isEmpty()) {
+                            searchResults = history.searchMessages(currentConversation, searchQuery);
+                            searchResultIndex = searchResults.isEmpty() ? -1 : 0;
+                        }
                     }
                     return true;
                 }
                 yOffset += SIDEBAR_ITEM_HEIGHT;
             }
         }
+        if (button == 0 && mouseY >= notifBarY && mouseY < notifBarY + NOTIF_BAR_H && mouseX >= SIDEBAR_WIDTH) {
+            handleNotifBarClick();
+            return true;
+        }
         return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    private void handleNotifBarClick() {
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        history.markConversationRead(currentConversation);
+        scrollOffset = maxScrollOffset();
     }
 
     @Override
     public void onClose() {
-        ChatHistoryManager.getInstance().save();
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        if (ModClientConfig.CONFIG.preserveInput.get()) {
+            history.setSavedInput(input.getValue());
+        }
+        history.saveNow();
         super.onClose();
+    }
+
+    @Override
+    public void removed() {
+        try { minecraft.gameRenderer.loadEffect(null); } catch (Exception ignored) {}
     }
 
     @Override
@@ -254,9 +468,49 @@ public class ModChatScreen extends Screen {
                 && this.commandSuggestions.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        if (super.keyPressed(keyCode, scanCode, modifiers)) return true;
+
+        // Search mode
+        if (showSearch && searchInput != null && searchInput.isFocused()) {
+            if (keyCode == 256) {
+                showSearch = false;
+                searchInput.setVisible(false);
+                searchQuery = "";
+                searchResults = List.of();
+                searchResultIndex = -1;
+                setFocused(input);
+                return true;
+            }
+            if ((keyCode == 257 || keyCode == 335) && !searchResults.isEmpty()) {
+                searchResultIndex = (searchResultIndex + 1) % searchResults.size();
+                scrollToMessageIndex(searchResults.get(searchResultIndex));
+                return true;
+            }
+        }
+
+        // Emoji autocomplete
+        if (emojiAutoComplete.keyPressed(keyCode, input)) return true;
+
+        // Emoji panel search
+        if (emojiPanel.keyPressed(keyCode, scanCode, modifiers)) return true;
+
+        // Mention popup
+        if (mentionPopup.keyPressed(keyCode, input)) return true;
+
+        // Quick phrases add input
+        if (quickPhrasesPanel.keyPressed(keyCode, scanCode, modifiers)) return true;
+
+        // ESC - close panels first, then screen
         if (keyCode == 256) {
+            if (emojiPanel.visible) { emojiPanel.visible = false; return true; }
+            if (emojiAutoComplete.visible) { emojiAutoComplete.visible = false; return true; }
+            if (quickPhrasesPanel.visible) { quickPhrasesPanel.visible = false; return true; }
+            this.onClose();
             this.minecraft.setScreen(null);
+            return true;
+        }
+
+        if (super.keyPressed(keyCode, scanCode, modifiers)) {
+            emojiAutoComplete.update(input.getValue());
             return true;
         }
         if (keyCode == 257 || keyCode == 335) {
@@ -274,11 +528,23 @@ public class ModChatScreen extends Screen {
         return false;
     }
 
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (emojiPanel.charTyped(codePoint)) return true;
+        if (quickPhrasesPanel.charTyped(codePoint, modifiers)) return true;
+        boolean handled = super.charTyped(codePoint, modifiers);
+        if (input != null && input.isFocused()) {
+            emojiAutoComplete.update(input.getValue());
+        }
+        return handled;
+    }
+
     private void sendMessage(String text) {
+        text = cn.sarskin.ChatSphere.client.emoji.EmojiRegistry.shortcodesToUnicode(text);
         text = text.trim();
         if (text.isEmpty()) return;
 
-        if (text.startsWith("#") && text.length() > 1 && ModClientConfig.CONFIG.enableChannels.get()) {
+        if (text.startsWith("#") && text.length() > 1 && ModServerConfig.CONFIG.enableChannels.get()) {
             String newChannel = text.substring(1).trim();
             if (!newChannel.isEmpty()) {
                 String channelId = "#" + newChannel;
@@ -339,6 +605,9 @@ public class ModChatScreen extends Screen {
 
         ChatHistoryManager history = ChatHistoryManager.getInstance();
         ChatMessageData.ConversationType currentType = history.getConversationType(currentConversation);
+        String replyText = replyBar.replyText;
+        String replySender = replyBar.replySender;
+
         if (currentType == ChatMessageData.ConversationType.COMMAND) {
             this.minecraft.player.connection.sendCommand(stripped);
             history.addCommandEntry(this.minecraft.player.getUUID(), stripped);
@@ -353,23 +622,37 @@ public class ModChatScreen extends Screen {
         } else if (currentType == ChatMessageData.ConversationType.PRIVATE) {
             sentHistory.add(text);
             historyPos = sentHistory.size();
-            String targetUuidStr = currentConversation;
-            if (currentConversation.contains(":")) {
-                String[] parts = currentConversation.split(":");
-                String localStr = this.minecraft.player.getUUID().toString();
-                targetUuidStr = parts[0].equals(localStr) ? parts[1] : parts[0];
+            if (history.isServerConnected()) {
+                sendChannelChatPacket(currentConversation, text);
+            } else {
+                String targetUuidStr = currentConversation;
+                if (currentConversation.contains(":")) {
+                    String[] parts = currentConversation.split(":");
+                    String localStr = this.minecraft.player.getUUID().toString();
+                    targetUuidStr = parts[0].equals(localStr) ? parts[1] : parts[0];
+                }
+                PlayerInfo info = targetUuidStr.length() == 36 ? onlinePlayers.get(targetUuidStr) : null;
+                String targetName = info != null ? info.getProfile().getName() : targetUuidStr;
+                this.minecraft.player.connection.sendCommand("msg " + targetName + " " + text);
             }
-            PlayerInfo info = targetUuidStr.length() == 36 ? onlinePlayers.get(targetUuidStr) : null;
-            String targetName = info != null ? info.getProfile().getName() : targetUuidStr;
-            this.minecraft.player.connection.sendCommand("msg " + targetName + " " + text);
             history.addMessage(
                     Component.literal(this.minecraft.player.getName().getString()),
                     this.minecraft.player.getUUID(),
                     Component.literal(text),
                     currentConversation,
                     ChatMessageData.ConversationType.PRIVATE,
-                    true);
+                    true,
+                    replyText, replySender);
         } else {
+            if (history.isServerConnected() && currentType == ChatMessageData.ConversationType.CHANNEL) {
+                var cfg = history.getChannelConfig(currentConversation);
+                if (cfg.mutedPlayers.contains(this.minecraft.player.getUUID().toString())) {
+                    this.minecraft.player.displayClientMessage(
+                        Component.translatable("chatsphere.mute.feedback"), false);
+                    this.input.setValue("");
+                    return;
+                }
+            }
             sentHistory.add(text);
             historyPos = sentHistory.size();
             if (history.isServerConnected()) {
@@ -383,9 +666,12 @@ public class ModChatScreen extends Screen {
                     Component.literal(text),
                     currentConversation,
                     ChatMessageData.ConversationType.CHANNEL,
-                    true);
+                    true,
+                    replyText, replySender);
         }
 
+        replyBar.clear();
+        replyHighlightTarget = -1;
         this.input.setValue("");
         this.scrollOffset = 0;
     }
@@ -422,16 +708,19 @@ public class ModChatScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        int emojiPanelX = SIDEBAR_WIDTH + 4;
+        int emojiPanelY = this.height - 14 - TOOLBAR_HEIGHT - EmojiPanel.PANEL_H - 4;
+        if (emojiPanel.mouseScrolled(mouseX, mouseY, emojiPanelX, emojiPanelY, scrollY)) return true;
+        if (quickPhrasesPanel.mouseScrolled(scrollY)) return true;
+
         if (COMMAND_CONVERSATION_ID.equals(currentConversation)
                 && this.commandSuggestions != null
                 && this.commandSuggestions.mouseScrolled(scrollY)) {
             return true;
         }
-        boolean scrollRightBlocked = showRightSidebar && ChatHistoryManager.getInstance().getConversationType(currentConversation) == ChatMessageData.ConversationType.CHANNEL && mouseX >= this.width - RIGHT_SIDEBAR_WIDTH;
-        if (mouseX >= SIDEBAR_WIDTH && !scrollRightBlocked && mouseY < height - 26) {
-            scrollOffset += (int) -scrollY;
-            int maxScroll = Math.max(0, getMessageCount() - getVisibleMessageCount());
-            scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+        if (mouseY >= chatAreaTop() && mouseY < height - 14 - TOOLBAR_HEIGHT - MESSAGE_BOTTOM_PAD && mouseX >= SIDEBAR_WIDTH) {
+            scrollOffset += (int) scrollY;
+            scrollOffset = Math.max(0, Math.min(scrollOffset, maxScrollOffset()));
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -439,7 +728,7 @@ public class ModChatScreen extends Screen {
 
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+        super.render(guiGraphics, mouseX, mouseY, partialTick);
 
         buildSidebarEntries();
         drawSidebar(guiGraphics, mouseX, mouseY);
@@ -447,87 +736,254 @@ public class ModChatScreen extends Screen {
         int screenWidth = this.width;
         int screenHeight = this.height;
 
-        boolean showRight = showRightSidebar && ChatHistoryManager.getInstance().getConversationType(currentConversation) == ChatMessageData.ConversationType.CHANNEL;
-        int effectiveWidth = showRight ? screenWidth - RIGHT_SIDEBAR_WIDTH : screenWidth;
-
-        if (showRight) {
-            drawRightSidebar(guiGraphics, mouseX, mouseY, effectiveWidth, screenHeight);
-            drawToggleRightSidebarButton(guiGraphics, mouseX, mouseY, screenWidth, screenHeight, showRight, effectiveWidth);
-        } else {
-            drawToggleRightSidebarButton(guiGraphics, mouseX, mouseY, screenWidth, screenHeight, showRight, effectiveWidth);
-        }
-
         drawHeaderBar(guiGraphics);
-        renderMessages(guiGraphics, effectiveWidth, screenHeight);
+        renderMessages(guiGraphics, screenWidth, screenHeight);
+        renderNotificationBar(guiGraphics, screenHeight);
 
-        guiGraphics.fill(SIDEBAR_WIDTH, screenHeight - 14, effectiveWidth, screenHeight, 0x88000000);
-
+        guiGraphics.fill(SIDEBAR_WIDTH, screenHeight - 14 - TOOLBAR_HEIGHT, screenWidth, screenHeight, 0x88000000);
         this.input.render(guiGraphics, mouseX, mouseY, partialTick);
-        for (Renderable renderable : this.renderables) {
-            if (renderable != this.input) {
-                renderable.render(guiGraphics, mouseX, mouseY, partialTick);
-            }
-        }
+        drawToolbar(guiGraphics, mouseX, mouseY, screenHeight, screenWidth);
+        drawWidgetPanels(guiGraphics, mouseX, mouseY);
 
         if (COMMAND_CONVERSATION_ID.equals(currentConversation) && this.commandSuggestions != null) {
             this.commandSuggestions.render(guiGraphics, mouseX, mouseY);
         }
+
+        renderTooltips(guiGraphics, mouseX, mouseY, screenWidth, screenHeight);
     }
 
-    private void drawToggleRightSidebarButton(GuiGraphics guiGraphics, int mouseX, int mouseY, int screenWidth, int screenHeight, boolean rightSidebarVisible, int effectiveWidth) {
-        int btnX = rightSidebarVisible ? effectiveWidth - 10 : screenWidth - 10;
-        int btnY = 4;
-        int btnW = 10;
-        int btnH = 30;
-        boolean hovered = mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH;
-        guiGraphics.fill(btnX, btnY, btnX + btnW, btnY + btnH, hovered ? 0x88333388 : 0x661A1A2E);
-        guiGraphics.renderOutline(btnX, btnY, btnW, btnH, 0x446666AA);
-        String arrow = rightSidebarVisible ? "\u25B6" : "\u25C0";
-        guiGraphics.drawString(font, arrow, btnX + 1, btnY + 10, 0xFF888888, false);
+    private void drawToolbar(GuiGraphics g, int mouseX, int mouseY, int screenHeight, int screenWidth) {
+        int ty = screenHeight - 14 - TOOLBAR_HEIGHT;
+        g.fill(SIDEBAR_WIDTH, ty, screenWidth + 2, ty + TOOLBAR_HEIGHT, 0x88000000);
+
+        int btnX = SIDEBAR_WIDTH + 4;
+        int btnY = ty + 1;
+        int iconSize = TOOLBAR_HEIGHT - 2;
+
+        int hc = 0x66333388;
+        int nc = 0x44000000;
+
+        boolean emojiHover = mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize;
+        g.fill(btnX, btnY, btnX + iconSize, btnY + iconSize, emojiHover || emojiPanel.visible ? hc : nc);
+        g.blit(EMOJI_ICON, btnX + 1, btnY + 1, 0, 0, iconSize - 2, iconSize - 2, iconSize - 2, iconSize - 2);
+
+        btnX += iconSize + 2;
+        boolean qpHover = mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize;
+        g.fill(btnX, btnY, btnX + iconSize, btnY + iconSize, qpHover || quickPhrasesPanel.visible ? hc : nc);
+        g.blit(QUICK_PHRASES_ICON, btnX + 1, btnY + 1, 0, 0, iconSize - 2, iconSize - 2, iconSize - 2, iconSize - 2);
+
+        btnX += iconSize + 2;
+        boolean searchHover = mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize;
+        g.fill(btnX, btnY, btnX + iconSize, btnY + iconSize, searchHover || showSearch ? hc : nc);
+        g.blit(SEARCH_ICON, btnX + 1, btnY + 1, 0, 0, iconSize - 2, iconSize - 2, iconSize - 2, iconSize - 2);
     }
 
-    private void drawRightSidebar(GuiGraphics guiGraphics, int mouseX, int mouseY, int effectiveWidth, int screenHeight) {
-        guiGraphics.fill(effectiveWidth, 0, effectiveWidth + RIGHT_SIDEBAR_WIDTH, screenHeight, 0xDD1A1A2E);
+    private void renderTooltips(GuiGraphics g, int mouseX, int mouseY, int screenWidth, int screenHeight) {
+        int ty = screenHeight - 14 - TOOLBAR_HEIGHT;
+        int btnY = ty + 1;
+        int iconSize = TOOLBAR_HEIGHT - 2;
+        int btnX = SIDEBAR_WIDTH + 4;
 
+        // Emoji button tooltip
+        if (mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize) {
+            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.emoji"), mouseX, mouseY);
+            return;
+        }
+        btnX += iconSize + 2;
+        // Quick phrases tooltip
+        if (mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize) {
+            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.quick_phrases"), mouseX, mouseY);
+            return;
+        }
+        btnX += iconSize + 2;
+        // Search button tooltip
+        if (mouseX >= btnX && mouseX <= btnX + iconSize && mouseY >= btnY && mouseY <= btnY + iconSize) {
+            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.search"), mouseX, mouseY);
+            return;
+        }
+
+        // Search close button tooltip
+        if (showSearch) {
+            int muteOffset = isCurrentChannelMuted() ? MUTE_BAR_H : 0;
+            int barY = HEADER_BAR_HEIGHT + 6 + muteOffset;
+            int areaRight = screenWidth;
+            int closeX = areaRight - 18;
+            if (mouseX >= closeX && mouseX <= closeX + 14 && mouseY >= barY + 3 && mouseY <= barY + 17) {
+                g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.search_close"), mouseX, mouseY);
+                return;
+            }
+        }
+
+        // Sidebar header icons
+        if (mouseX < SIDEBAR_WIDTH) {
+            int y = 10;
+            int headerIdx = 0;
+            for (int i = 0; i < sidebarEntries.size(); i++) {
+                SidebarEntry entry = sidebarEntries.get(i);
+                if (entry.isHeader) {
+                    if (headerIdx == 0) {
+                        int plusX = SIDEBAR_WIDTH - 6 - 10;
+                        int plusY = y + (SIDEBAR_ITEM_HEIGHT - 8) / 2;
+                        if (mouseX >= plusX && mouseX <= plusX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
+                            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.create_channel"), mouseX, mouseY);
+                            return;
+                        }
+                        int joinX = plusX - 14;
+                        if (mouseX >= joinX && mouseX <= joinX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
+                            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.join_channel"), mouseX, mouseY);
+                            return;
+                        }
+                        int exploreX = joinX - 14;
+                        if (mouseX >= exploreX && mouseX <= exploreX + 10 && mouseY >= plusY && mouseY <= plusY + 10) {
+                            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.explore_servers"), mouseX, mouseY);
+                            return;
+                        }
+                    }
+                    headerIdx++;
+                    y += SIDEBAR_ITEM_HEIGHT;
+                } else {
+                    // Gear icon tooltip
+                    if (entry.type == ChatMessageData.ConversationType.CHANNEL && entry.conversationId != null) {
+                        int gearX = SIDEBAR_WIDTH - 6 - CONFIG_ICON_SIZE;
+                        int gearY = y + (SIDEBAR_ITEM_HEIGHT - CONFIG_ICON_SIZE) / 2;
+                        if (mouseX >= gearX && mouseX <= gearX + CONFIG_ICON_SIZE && mouseY >= gearY && mouseY <= gearY + CONFIG_ICON_SIZE) {
+                            g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.channel_settings"), mouseX, mouseY);
+                            return;
+                        }
+                    }
+                    y += SIDEBAR_ITEM_HEIGHT;
+                }
+            }
+        }
+
+        // Context menu tooltips
+        if (contextMsgIndex >= 0) {
+            int menuH = 16 * 2 + 3;
+            int menuX = Math.min(contextMenuX, this.width - 80 - 10);
+            int menuY = contextMenuY - menuH;
+            if (menuY < HEADER_BAR_HEIGHT + 6) menuY = contextMenuY + 4;
+
+            if (mouseX >= menuX && mouseX <= menuX + 80) {
+                if (mouseY >= menuY && mouseY <= menuY + 16) {
+                    g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.copy"), mouseX, mouseY);
+                } else if (mouseY >= menuY + 18 && mouseY <= menuY + 34) {
+                    g.renderTooltip(font, Component.translatable("screen.chatsphere.tip.reply"), mouseX, mouseY);
+                }
+            }
+        }
+    }
+
+    private void drawWidgetPanels(GuiGraphics g, int mouseX, int mouseY) {
+        // Search bar
+        if (showSearch && searchInput != null) {
+            int muteOffset = isCurrentChannelMuted() ? MUTE_BAR_H : 0;
+            int barY = HEADER_BAR_HEIGHT + 6 + muteOffset;
+            int barH = 20;
+            int areaLeft = SIDEBAR_WIDTH + 2;
+            int areaRight = this.width;
+            g.fill(areaLeft, barY, areaRight, barY + barH, 0xBB1A1A2E);
+            g.fill(areaLeft, barY + barH - 1, areaRight, barY + barH, 0x445A4A7E);
+
+            searchInput.setX(areaLeft + 4);
+            searchInput.setY(barY + 3);
+            searchInput.setWidth(areaRight - areaLeft - 60);
+            searchInput.render(g, mouseX, mouseY, 0);
+
+            int closeX = areaRight - 18;
+            boolean closeHover = mouseX >= closeX && mouseX <= closeX + 14 && mouseY >= barY + 3 && mouseY <= barY + 17;
+            g.fill(closeX, barY + 3, closeX + 14, barY + 17, closeHover ? 0x44FF4444 : 0x22333333);
+            g.drawString(font, "X", closeX + 5, barY + 5, 0xFFFF6666, false);
+
+            if (!searchResults.isEmpty()) {
+                String counter = (searchResultIndex + 1) + "/" + searchResults.size();
+                g.drawString(font, counter, searchInput.getX() + searchInput.getWidth() + 4, barY + 5, 0xFF8888FF, false);
+            } else if (!searchQuery.isEmpty()) {
+                g.drawString(font, Component.translatable("screen.chatsphere.search.no_match"), searchInput.getX() + searchInput.getWidth() + 4, barY + 5, 0xFF888888, false);
+            }
+        }
+
+        // Emoji panel
+        if (emojiPanel.visible) {
+            emojiPanel.render(g, SIDEBAR_WIDTH + 4, this.height - 14 - TOOLBAR_HEIGHT - EmojiPanel.PANEL_H - 4, mouseX, mouseY);
+        }
+
+        // Quick phrases panel
+        if (quickPhrasesPanel.visible) {
+            int qpY = this.height - 14 - TOOLBAR_HEIGHT - 4 - Math.min(Math.min(ModClientConfig.CONFIG.quickPhrases.get().size(), 6) * 18, 112);
+            quickPhrasesPanel.render(g, SIDEBAR_WIDTH + 4, qpY, mouseX, mouseY);
+        }
+
+        // Mention popup
+        if (mentionPopup.visible) {
+            mentionPopup.render(g, input, mouseX, mouseY);
+        }
+
+        // Emoji autocomplete
+        if (emojiAutoComplete.visible) {
+            emojiAutoComplete.render(g, input, mouseX, mouseY);
+        }
+
+        // Context menu
+        if (contextMsgIndex >= 0) {
+            drawContextMenu(g, mouseX, mouseY);
+        }
+
+        replyBar.render(g, mouseX, mouseY, SIDEBAR_WIDTH, this.width, 0, false);
+
+        // Copy toast
+        copyToast.render(g, SIDEBAR_WIDTH, this.width);
+    }
+
+    private void drawContextMenu(GuiGraphics g, int mouseX, int mouseY) {
+        int menuH = 16 * 2 + 3;
+        int menuX = Math.min(contextMenuX, this.width - 80 - 10);
+        int menuY = contextMenuY - menuH;
+        if (menuY < HEADER_BAR_HEIGHT + 6) menuY = contextMenuY + 4;
+
+        g.fill(menuX, menuY, menuX + 80, menuY + menuH, 0xDD2A2A4E);
+        g.renderOutline(menuX, menuY, 80, menuH, 0xFF6666AA);
+
+        boolean hoverCopy = mouseY >= menuY && mouseY <= menuY + 16;
+        g.fill(menuX + 1, menuY + 1, menuX + 79, menuY + 17, hoverCopy ? 0x44448888 : 0);
+        g.drawString(font, Component.translatable("screen.chatsphere.context.copy"), menuX + 8, menuY + 3, 0xCCCCCC, false);
+
+        boolean hoverReply = mouseY >= menuY + 18 && mouseY <= menuY + 34;
+        g.fill(menuX + 1, menuY + 18, menuX + 79, menuY + 34, hoverReply ? 0x44448888 : 0);
+        g.drawString(font, Component.translatable("screen.chatsphere.context.reply"), menuX + 8, menuY + 20, 0xCCCCCC, false);
+    }
+
+    private void handleContextMenuClick(int mx, int my) {
+        int menuH = 16 * 2 + 3;
+        int menuX = Math.min(contextMenuX, this.width - 80 - 10);
+        int menuY = contextMenuY - menuH;
+        if (menuY < HEADER_BAR_HEIGHT + 6) menuY = contextMenuY + 4;
+
+        if (mx >= menuX && mx <= menuX + 80) {
+            ChatHistoryManager history = ChatHistoryManager.getInstance();
+            ChatMessageData msg = history.getMessageByIndex(contextMsgIndex);
+            if (msg == null) { contextMsgIndex = -1; return; }
+            if (my >= menuY && my <= menuY + 16) {
+                minecraft.keyboardHandler.setClipboard(msg.content().getString());
+                copyToast.show();
+            } else if (my >= menuY + 18 && my <= menuY + 34) {
+                replyBar.targetIndex = contextMsgIndex;
+                replyBar.replyText = msg.content().getString();
+                replyBar.replySender = msg.senderName().getString();
+            }
+        }
+        contextMsgIndex = -1;
+    }
+
+    private void scrollToMessageIndex(int targetIdx) {
         ChatHistoryManager history = ChatHistoryManager.getInstance();
-        ChatDataStore.ChannelConfig cfg = history.getChannelConfig(currentConversation);
-        int channelMemberCount = cfg.members.size();
-        Component header = Component.translatable(
-                "screen.chatsphere.mod_chat.members_header",
-                channelMemberCount);
-        guiGraphics.drawString(font, header, effectiveWidth + 4, 4, 0xFF888888, false);
-
-        Minecraft mc = Minecraft.getInstance();
-        String localPlayerUuid = mc.player != null ? mc.player.getUUID().toString() : null;
-
-        int y = 18;
-        for (Map.Entry<String, PlayerInfo> entry : onlinePlayers.entrySet()) {
-            String uuid = entry.getKey();
-            String name = entry.getValue().getProfile().getName();
-
-            boolean isChannelMember = cfg.members.contains(uuid);
-            int textColor = 0xFF444444;
-            if (uuid.equals(localPlayerUuid)) {
-                textColor = 0xFFFFFF88;
-            } else if (uuid.equals(cfg.owner)) {
-                textColor = 0xFFAA88FF;
-            } else if (cfg.admins.contains(uuid)) {
-                textColor = 0xFF8888FF;
-            } else if (cfg.mutedPlayers.contains(uuid)) {
-                textColor = 0xFF666666;
-            } else if (isChannelMember) {
-                textColor = 0xFFCCCCCC;
+        List<ChatMessageData> msgs = history.getMessagesByConversation(currentConversation);
+        for (int i = 0; i < msgs.size(); i++) {
+            if (history.getMessageIndex(msgs.get(i)) == targetIdx) {
+                int visible = Math.max(1, (height - chatAreaTop() - 14 - TOOLBAR_HEIGHT - MESSAGE_BOTTOM_PAD) / 30);
+                scrollOffset = Math.max(0, msgs.size() - 1 - i - visible / 2);
+                scrollOffset = Math.min(scrollOffset, maxScrollOffset());
+                break;
             }
-
-            if (!isChannelMember && !uuid.equals(localPlayerUuid) && !uuid.equals(cfg.owner) && !cfg.admins.contains(uuid)) {
-                continue;
-            }
-
-            int maxLen = RIGHT_SIDEBAR_WIDTH / (font.width("W") + 1) - 1;
-            String displayName = name.length() > maxLen ? name.substring(0, maxLen - 1) + ".." : name;
-            guiGraphics.drawString(font, displayName, effectiveWidth + 4, y, textColor, false);
-            y += 10;
-            if (y > screenHeight - 10) break;
         }
     }
 
@@ -549,7 +1005,7 @@ public class ModChatScreen extends Screen {
         }
         if (channelIds.isEmpty()) {
             sidebarEntries.add(new SidebarEntry(ChatHistoryManager.DEFAULT_CHANNEL_ID,
-                    Component.translatable("screen.chatsphere.mod_chat.default_channel"),
+                    Component.translatable("screen.chatsphere.mod_chat.general_channel"),
                     ChatMessageData.ConversationType.CHANNEL, false, null));
         }
 
@@ -562,7 +1018,7 @@ public class ModChatScreen extends Screen {
             if (id.equals(ChatHistoryManager.DEFAULT_CHANNEL_ID)) continue; // 跳过默认频道被误加入私聊
             if (history.getConversationType(id) == ChatMessageData.ConversationType.PRIVATE) {
                 Component name = history.getConversationDisplayName(id);
-                if (name == null || name.getString().contains("Default") || name.getString().contains("公共")) continue;
+                if (name == null) continue;
                 UUID targetUuid = null;
                 if (id.contains(":") && this.minecraft != null && this.minecraft.player != null) {
                     try {
@@ -610,7 +1066,7 @@ public class ModChatScreen extends Screen {
                             && mouseY >= plusY && mouseY <= plusY + 10;
                     guiGraphics.fill(plusX, plusY, plusX + 10, plusY + 10,
                             plusHovered ? 0xFF44AA44 : 0xFF333388);
-                    guiGraphics.drawString(font, "+", plusX + 2, plusY + 1, 0xFFFFFFFF, false);
+                    guiGraphics.blit(CREATE_CHANNEL_ICON, plusX + 1, plusY + 1, 0, 0, 8, 8, 8, 8);
 
                     int joinX = plusX - 14;
                     int joinY = plusY;
@@ -618,7 +1074,14 @@ public class ModChatScreen extends Screen {
                             && mouseY >= joinY && mouseY <= joinY + 10;
                     guiGraphics.fill(joinX, joinY, joinX + 10, joinY + 10,
                             joinHovered ? 0xFF4488AA : 0xFF333366);
-                    guiGraphics.drawString(font, "=", joinX + 1, joinY + 1, 0xFFFFFFFF, false);
+                    guiGraphics.blit(JOIN_CHANNEL_ICON, joinX + 1, joinY + 1, 0, 0, 8, 8, 8, 8);
+
+                    int exploreX = joinX - 14;
+                    boolean exploreHovered = mouseX >= exploreX && mouseX <= exploreX + 10
+                            && mouseY >= joinY && mouseY <= joinY + 10;
+                    guiGraphics.fill(exploreX, joinY, exploreX + 10, joinY + 10,
+                            exploreHovered ? 0xFF44AA88 : 0xFF334466);
+                    guiGraphics.blit(SEARCH_ICON, exploreX + 1, joinY + 1, 0, 0, 8, 8, 8, 8);
                 }
                 headerIdx++;
                 y += SIDEBAR_ITEM_HEIGHT;
@@ -660,24 +1123,8 @@ public class ModChatScreen extends Screen {
     }
 
     private void drawPlayerFace(GuiGraphics guiGraphics, UUID uuid, int x, int y, int size) {
-        // 如果 UUID 为 null，直接返回，不绘制任何内容
-        if (uuid == null) {
-            return;
-        }
-
-        Minecraft mc = Minecraft.getInstance();
-        PlayerSkin skin;
-        if (mc.getConnection() != null) {
-            PlayerInfo info = mc.getConnection().getPlayerInfo(uuid);
-            if (info != null) {
-                skin = info.getSkin();
-            } else {
-                skin = DefaultPlayerSkin.get(uuid);
-            }
-        } else {
-            skin = DefaultPlayerSkin.get(uuid);
-        }
-        PlayerFaceRenderer.draw(guiGraphics, skin, x, y, size);
+        if (uuid == null) return;
+        PlayerFaceRenderer.draw(guiGraphics, PlayerSkinCache.getSkin(uuid), x, y, size);
     }
 
     private void drawHeaderBar(GuiGraphics guiGraphics) {
@@ -697,29 +1144,113 @@ public class ModChatScreen extends Screen {
                     .withStyle(ChatFormatting.BOLD);
         }
 
-        boolean showRight = showRightSidebar && type == ChatMessageData.ConversationType.CHANNEL;
-        int effectiveWidth = showRight ? this.width - RIGHT_SIDEBAR_WIDTH : this.width;
         int hw = font.width(header);
-        int headerX = SIDEBAR_WIDTH + (effectiveWidth - SIDEBAR_WIDTH - hw) / 2;
+        int headerX = SIDEBAR_WIDTH + (this.width - SIDEBAR_WIDTH - hw) / 2;
         guiGraphics.drawString(font, header, headerX, 3, 0xFFFFFFFF, false);
+
+        if (isCurrentChannelMuted()) {
+            int barY = HEADER_BAR_HEIGHT + 2;
+            guiGraphics.fill(SIDEBAR_WIDTH, barY, width, barY + MUTE_BAR_H, 0xCC661111);
+            guiGraphics.fill(SIDEBAR_WIDTH, barY + MUTE_BAR_H - 1, width, barY + MUTE_BAR_H, 0xFF441111);
+            Component muteText = Component.translatable("chatsphere.mute.feedback");
+            guiGraphics.drawString(font, muteText, SIDEBAR_WIDTH + 6, barY + 3, 0xFFFF8888, false);
+        }
+    }
+
+    private boolean isCurrentChannelMuted() {
+        if (minecraft == null || minecraft.player == null) return false;
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        if (history.getConversationType(currentConversation) != ChatMessageData.ConversationType.CHANNEL)
+            return false;
+        var cfg = history.getChannelConfig(currentConversation);
+        return cfg.mutedPlayers.contains(minecraft.player.getUUID().toString());
+    }
+
+    private void renderNotificationBar(GuiGraphics g, int screenHeight) {
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        int unread = history.getUnreadCount(currentConversation);
+        boolean atBottom = scrollOffset >= maxScrollOffset() - 1;
+        if (atBottom) {
+            if (unread > 0) history.markConversationRead(currentConversation);
+            unread = 0;
+        }
+        if (unread <= 0) return;
+
+        int barY = screenHeight - 14 - TOOLBAR_HEIGHT - NOTIF_BAR_H;
+        notifBarY = barY;
+        int barH = NOTIF_BAR_H;
+
+        g.fillGradient(SIDEBAR_WIDTH, barY, width, barY + barH, 0xCC1A1A3E, 0xCC2A2A4E);
+        g.fill(SIDEBAR_WIDTH, barY, width, barY + 1, 0x665A4A7E);
+        g.fill(SIDEBAR_WIDTH, barY + barH - 1, width, barY + barH, 0x665A4A7E);
+
+        String text = Component.translatable("chatsphere.notif.new_messages", unread).getString() + " \u25BD";
+        int textW = font.width(text);
+        int textX = SIDEBAR_WIDTH + (width - SIDEBAR_WIDTH - textW) / 2;
+        g.drawString(font, text, textX + 1, barY + 5, 0xAA000000, false);
+        g.drawString(font, text, textX, barY + 4, 0xFFFFCC66, false);
+    }
+
+    private int chatAreaTop() {
+        return HEADER_BAR_HEIGHT + 6 + (isCurrentChannelMuted() ? MUTE_BAR_H : 0);
     }
 
     private void renderMessages(GuiGraphics guiGraphics, int screenWidth, int screenHeight) {
         int chatAreaLeft = SIDEBAR_WIDTH + 4;
         int chatAreaRight = screenWidth - 4;
-        int chatAreaTop = HEADER_BAR_HEIGHT + 6;
-        int chatAreaBottom = screenHeight - 18;
+        int chatAreaTop = chatAreaTop();
+        int chatAreaBottom = screenHeight - 14 - TOOLBAR_HEIGHT - MESSAGE_BOTTOM_PAD - (replyBar.targetIndex >= 0 ? ReplyBarWidget.BAR_HEIGHT + 2 : 0);
 
         ChatHistoryManager history = ChatHistoryManager.getInstance();
         List<ChatMessageData> messages = history.getMessagesByConversation(currentConversation);
         int totalMessages = messages.size();
         if (totalMessages == 0) return;
+        synchronized (cmdHitBoxes) { cmdHitBoxes.clear(); }
+        synchronized (bubbleHitBoxes) { bubbleHitBoxes.clear(); }
+        synchronized (replyQuoteHitBoxes) { replyQuoteHitBoxes.clear(); }
 
         int yOffset = chatAreaBottom;
         int idx = Math.max(0, totalMessages - 1 - scrollOffset);
+        int sepInterval = ModClientConfig.CONFIG.timeSeparatorMinutes.get();
+        String lastTimeKey = null;
+
         for (int i = idx; i >= 0; i--) {
             ChatMessageData msg = messages.get(i);
+
+            // Time separator
+            if (sepInterval > 0) {
+                String key = ChatHistoryManager.timeSeparatorKey(msg.timestamp(), sepInterval);
+                if (lastTimeKey != null && !key.equals(lastTimeKey)) {
+                    yOffset -= 16;
+                    if (yOffset < chatAreaTop) break;
+                    String sepText = ChatHistoryManager.formatTimestamp(msg.timestamp());
+                    int sepW = font.width(sepText);
+                    int sepX = chatAreaLeft + (chatAreaRight - chatAreaLeft - sepW) / 2;
+                    guiGraphics.drawString(font, sepText, sepX, yOffset + 1, 0xFF888888, false);
+                    guiGraphics.fill(chatAreaLeft + 8, yOffset + 10, chatAreaRight - 8, yOffset + 11, 0x44FFFFFF);
+                }
+                lastTimeKey = key;
+            }
+
             int bubbleHeight = renderMessageBubble(guiGraphics, msg, chatAreaLeft, chatAreaRight, yOffset);
+            synchronized (bubbleHitBoxes) {
+                bubbleHitBoxes.add(new BubbleHit(chatAreaLeft, yOffset - bubbleHeight, chatAreaRight - chatAreaLeft, bubbleHeight, history.getMessageIndex(msg)));
+            }
+            if (showSearch && !searchQuery.isEmpty() && !searchResults.isEmpty()) {
+                int globalIdx = history.getMessageIndex(msg);
+                if (searchResults.contains(globalIdx)) {
+                    boolean isCurrent = searchResultIndex >= 0 && searchResultIndex < searchResults.size()
+                            && searchResults.get(searchResultIndex) == globalIdx;
+                    int hlColor = isCurrent ? 0x44FFAA00 : 0x228888FF;
+                    guiGraphics.fill(chatAreaLeft, yOffset - bubbleHeight + 2, chatAreaRight, yOffset + 2, hlColor);
+                }
+            }
+            if (replyHighlightTarget >= 0) {
+                int globalIdx = history.getMessageIndex(msg);
+                if (globalIdx == replyHighlightTarget) {
+                    guiGraphics.fill(chatAreaLeft, yOffset - bubbleHeight + 2, chatAreaRight, yOffset + 2, 0x4433AA33);
+                }
+            }
             yOffset -= bubbleHeight + 2;
             if (yOffset < chatAreaTop) break;
         }
@@ -731,6 +1262,7 @@ public class ModChatScreen extends Screen {
         boolean showName = ModClientConfig.CONFIG.showSenderName.get();
         boolean showTime = ModClientConfig.CONFIG.showTimestamp.get();
         boolean showAvatar = ModClientConfig.CONFIG.showAvatar.get();
+        boolean isDark = ModClientConfig.CONFIG.themeDark.get();
 
         boolean isCommand = msg.conversationType() == ChatMessageData.ConversationType.COMMAND;
 
@@ -744,87 +1276,170 @@ public class ModChatScreen extends Screen {
                 infoLine.append(Component.literal("\u8F93\u51FA").withStyle(ChatFormatting.GRAY));
             }
         } else {
-            contentText = msg.content().copy();
+            contentText = msg.renderedContent();
             if (showName) {
                 infoLine.append(msg.senderName().copy().withStyle(ChatFormatting.AQUA));
             }
         }
         if (showTime && !isCommand) {
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
+            String ts = ChatHistoryManager.formatTimestamp(msg.timestamp());
             if (showName) infoLine.append("  ");
-            infoLine.append(Component.literal(sdf.format(new Date(msg.timestamp()))).withStyle(ChatFormatting.GRAY));
+            infoLine.append(Component.literal(ts).withStyle(ChatFormatting.GRAY));
         }
+
+        int dupW = 0;
+        String dupLabel = null;
+        if (msg.duplicateCount() > 1) {
+            dupLabel = "x" + msg.duplicateCount();
+            dupW = mc.font.width(dupLabel) + 3;
+        }
+        int replyW = msg.replyContent() != null ? mc.font.width(" ↑ " + msg.replySender()) : 0;
 
         int contentWidth = mc.font.width(contentText);
         int infoWidth = mc.font.width(infoLine);
         int maxLineWidth = Math.max(contentWidth, infoWidth);
         if (isCommand) {
-            int prefixWidth = mc.font.width(msg.isOwn() ? "> " : "\u2192 ");
+            int prefixWidth = mc.font.width(msg.isOwn() ? "> " : "→ ");
             maxLineWidth = Math.max(maxLineWidth, contentWidth + prefixWidth);
         }
 
         int lineH = mc.font.lineHeight;
-        int bubbleW = Math.min(maxLineWidth + BUBBLE_HPAD * 2, areaRight - areaLeft - 30);
-        int bubbleH = (isCommand ? 1 : 2) * lineH + BUBBLE_VPAD * 2 + 1;
+        int lines = isCommand ? 1 : 2;
+        if (msg.replyContent() != null) lines++;
 
-        int avatarSize = AVATAR_SIZE;
-        int avatarX = areaLeft;
+        int avReserve = (showAvatar && !isCommand) ? AVATAR_SIZE + 4 : 0;
+        int bubbleW = Math.min(maxLineWidth + replyW + BUBBLE_HPAD * 2, areaRight - areaLeft - avReserve - 30);
+        int bubbleH = lines * lineH + BUBBLE_VPAD * 2 + 1;
+
         int bubbleX;
 
-        if (isCommand || msg.isOwn()) {
+        if (isCommand) {
             bubbleX = areaRight - bubbleW;
+        } else if (msg.isOwn()) {
+            bubbleX = Math.max(areaLeft, areaRight - bubbleW - avReserve - dupW);
         } else {
-            int offset = (showAvatar ? avatarSize + 4 : 0);
-            bubbleX = Math.max(areaLeft + offset, areaLeft);
+            bubbleX = Math.max(areaLeft + avReserve, areaLeft);
         }
         int bubbleY = y - bubbleH;
-        if (bubbleY < 0) return bubbleH + 2;
+        if (bubbleY < HEADER_BAR_HEIGHT + 6) return bubbleH + 2;
 
         int bgColor;
         if (isCommand) {
             bgColor = msg.isOwn() ? 0xFF2D2D2D : 0xFF1E1E2E;
+        } else if (msg.isOwn()) {
+            bgColor = ModClientConfig.parseHexColor(ModClientConfig.CONFIG.bubbleColorOwn.get(), isDark ? 0xFF1D3B5C : 0xFFD9E8FF);
         } else {
-            bgColor = msg.isOwn() ? 0xFFDCF8C6 : 0xFFFFFFFF;
+            bgColor = ModClientConfig.parseHexColor(ModClientConfig.CONFIG.bubbleColorOther.get(), isDark ? 0xFF26262E : 0xFFFFFFFF);
         }
-        int borderColor = isCommand ? 0xFF444444 : 0xFFCCCCCC;
-        guiGraphics.fill(bubbleX, bubbleY, bubbleX + bubbleW, bubbleY + bubbleH, bgColor);
-        guiGraphics.renderOutline(bubbleX, bubbleY, bubbleW, bubbleH, borderColor);
+        fillRoundedRect(guiGraphics, bubbleX, bubbleY, bubbleW, bubbleH,
+                ModClientConfig.CONFIG.bubbleCornerRadius.get(), bgColor);
 
-        if (showAvatar && !msg.isOwn() && !isCommand) {
+        if (dupLabel != null) {
+            int dupColor = 0xFFFFAA00;
+            int dupX, dupY = bubbleY + (bubbleH - lineH) / 2;
+            if (msg.isOwn()) {
+                dupX = bubbleX - dupW;
+            } else {
+                dupX = bubbleX + bubbleW + 2;
+            }
+            if (dupX >= SIDEBAR_WIDTH + 4) {
+                guiGraphics.drawString(mc.font, dupLabel, dupX, dupY, dupColor, false);
+            }
+        }
+
+        if (showAvatar && !isCommand) {
             UUID senderUuid = msg.senderUuid();
             if (senderUuid != null) {
-                drawPlayerFace(guiGraphics, senderUuid, avatarX, bubbleY + 4, avatarSize);
+                int avX = msg.isOwn() ? areaRight - AVATAR_SIZE : areaLeft;
+                drawPlayerFace(guiGraphics, senderUuid, avX, bubbleY + 4, AVATAR_SIZE);
             }
         }
 
         int textX = bubbleX + BUBBLE_HPAD;
+        int textY = bubbleY + BUBBLE_VPAD;
+
+        // Reply quote line
+        if (msg.replyContent() != null) {
+            String replyPrefix = "↑ " + msg.replySender() + ": ";
+            String rawReply = replyPrefix + msg.replyContent();
+            String truncated = mc.font.plainSubstrByWidth(rawReply, bubbleW - BUBBLE_HPAD * 2);
+            Component replyComponent = EmojiRegistry.toComponent(truncated);
+            int emojiOff = EmojiRegistry.containsPua(replyComponent) ? EmojiRegistry.EMOJI_Y_OFFSET : 0;
+            int replyQuoteW = mc.font.width(truncated);
+            int quoteY = textY - 2;
+            guiGraphics.drawString(mc.font, replyComponent, textX, quoteY + emojiOff, 0xFF8888FF, false);
+            synchronized (replyQuoteHitBoxes) {
+                replyQuoteHitBoxes.add(new ReplyQuoteHit(textX, quoteY, replyQuoteW, lineH, msg.replySender(), msg.replyContent()));
+            }
+            textY += lineH;
+        }
+
         if (isCommand) {
             Component displayText = msg.isOwn()
                     ? Component.literal("> ").withStyle(ChatFormatting.GREEN).append(contentText)
-                    : Component.literal("\u2192 ").withStyle(ChatFormatting.GRAY).append(contentText);
-            guiGraphics.drawString(mc.font, displayText, textX, bubbleY + BUBBLE_VPAD,
-                    0xFFFFFFFF, false);
+                    : Component.literal("→ ").withStyle(ChatFormatting.GRAY).append(contentText);
+            guiGraphics.drawString(mc.font, displayText, textX, textY, 0xFFFFFFFF, false);
+            synchronized (cmdHitBoxes) { cmdHitBoxes.add(new CommandHit(textX, textY, bubbleW - BUBBLE_HPAD * 2, lineH, displayText)); }
         } else {
-            guiGraphics.drawString(mc.font, infoLine, textX, bubbleY + BUBBLE_VPAD, 0xFF555555, false);
-            guiGraphics.drawString(mc.font, contentText, textX, bubbleY + BUBBLE_VPAD + lineH + 1,
-                    msg.isOwn() ? 0xFF000000 : 0xFF222222, false);
+            int textColor = msg.isOwn() ? 0xFFF0F0F0 : 0xFF1A1A1A;
+            guiGraphics.drawString(mc.font, infoLine, textX, textY, 0xFF555555, false);
+            textY += lineH + 1;
+            int emojiOff = EmojiRegistry.containsPua(contentText) ? EmojiRegistry.EMOJI_Y_OFFSET : 0;
+            guiGraphics.drawString(mc.font, contentText, textX, textY + emojiOff, textColor, false);
         }
 
         return bubbleH + 2;
     }
 
-    @Override
-    protected void insertText(String text, boolean overwrite) {
-        if (overwrite) {
-            this.input.setValue(text);
-        } else {
-            this.input.insertText(text);
+    private void fillRoundedRect(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
+        r = Math.min(r, Math.min(w, h) / 2);
+        if (r <= 0) { g.fill(x, y, x + w, y + h, color); return; }
+        g.fill(x + r, y, x + w - r, y + h, color);
+        g.fill(x, y + r, x + w, y + h - r, color);
+        for (int dy = 0; dy < r; dy++) {
+            int dx = (int) Math.sqrt(r * r - dy * dy);
+            int sy1 = y + r - dy - 1;
+            g.fill(x + r - dx, sy1, x + r + dx, sy1 + 1, color);
+            g.fill(x + w - r - dx, sy1, x + w - r + dx, sy1 + 1, color);
+            int sy2 = y + h - r + dy;
+            g.fill(x + r - dx, sy2, x + r + dx, sy2 + 1, color);
+            g.fill(x + w - r - dx, sy2, x + w - r + dx, sy2 + 1, color);
         }
     }
 
-    @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        guiGraphics.fillGradient(0, 0, this.width, this.height, 0x88000000, 0x44000000);
+    private int computeBubbleX(ChatMessageData msg, int areaRight) {
+        boolean showAvatar = ModClientConfig.CONFIG.showAvatar.get();
+        if (msg.conversationType() == ChatMessageData.ConversationType.COMMAND || msg.isOwn()) {
+            int bw = computeBubbleWidth(msg, areaRight - SIDEBAR_WIDTH);
+            return areaRight - bw;
+        }
+        int offset = (showAvatar ? AVATAR_SIZE + 4 : 0);
+        return Math.max(SIDEBAR_WIDTH + 4 + offset, SIDEBAR_WIDTH + 4);
+    }
+
+    private int computeBubbleWidth(ChatMessageData msg, int maxAreaWidth) {
+        return estimateBubbleWidth(msg, maxAreaWidth);
+    }
+
+    private int estimateBubbleWidth(ChatMessageData msg, int maxAreaWidth) {
+        Minecraft mc = Minecraft.getInstance();
+        String raw = msg.content().getString();
+        String displayText = msg.renderedContent().getString();
+        int textW = mc.font.width(displayText);
+        int nameW = mc.font.width(msg.senderName());
+        boolean isCommand = msg.conversationType() == ChatMessageData.ConversationType.COMMAND;
+        int prefixW = isCommand ? mc.font.width(msg.isOwn() ? "> " : "\u2192 ") : 0;
+        int maxTextW = Math.max(textW + prefixW, nameW);
+        int dupW = msg.duplicateCount() > 1 ? mc.font.width(" x" + msg.duplicateCount()) : 0;
+        int replyW = msg.replyContent() != null ? mc.font.width(" \u2191 " + msg.replySender()) : 0;
+        return Math.min(maxTextW + dupW + replyW + BUBBLE_HPAD * 2, maxAreaWidth - 30);
+    }
+
+    private int estimateBubbleHeight(ChatMessageData msg, int maxAreaWidth) {
+        Minecraft mc = Minecraft.getInstance();
+        int lines = msg.conversationType() == ChatMessageData.ConversationType.COMMAND ? 1 : 2;
+        if (msg.replyContent() != null) lines++;
+        return lines * mc.font.lineHeight + BUBBLE_VPAD * 2 + 1;
     }
 
     @Override
@@ -837,7 +1452,15 @@ public class ModChatScreen extends Screen {
     }
 
     private int getVisibleMessageCount() {
-        return (height - 50) / (font.lineHeight + 10);
+        int avail = (height - 14 - TOOLBAR_HEIGHT - MESSAGE_BOTTOM_PAD - chatAreaTop()) / (font.lineHeight + 10);
+        return Math.max(1, avail);
+    }
+
+    private int maxScrollOffset() {
+        int limit = ModClientConfig.CONFIG.scrollHistoryLimit.get();
+        int total = getMessageCount();
+        int capped = Math.min(total, limit);
+        return Math.max(0, capped - getVisibleMessageCount());
     }
 
     private void sendChannelChatPacket(String channelId, String text) {
@@ -847,18 +1470,15 @@ public class ModChatScreen extends Screen {
                 new ServerboundChannelActionPayload(
                         ServerboundChannelActionPayload.Action.SEND_CHAT,
                         channelId, this.minecraft.player.getUUID(),
-                        true, text, "", List.of(), List.of(), List.of(), "")));
+                        true, text, "", List.of(), List.of(), List.of(), "", true)));
     }
 
     private void sendChannelPacket(ServerboundChannelActionPayload.Action action, String channelId, UUID ownerUuid) {
         if (this.minecraft == null || this.minecraft.getConnection() == null) return;
         var conn = this.minecraft.getConnection().getConnection();
-        ChatHistoryManager history = ChatHistoryManager.getInstance();
-        ChatDataStore.ChannelConfig cfg = history.getChannelConfig(channelId);
         conn.send(new net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(
                 new ServerboundChannelActionPayload(action, channelId, ownerUuid,
-                        cfg.isPublic, cfg.description, cfg.displayName,
-                        cfg.admins, cfg.mutedPlayers, cfg.invitedPlayers, "")));
+                        true, "", "", List.of(), List.of(), List.of(), "", true)));
     }
 
     private static class SidebarEntry {

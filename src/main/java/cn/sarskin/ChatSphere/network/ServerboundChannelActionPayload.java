@@ -27,7 +27,8 @@ public record ServerboundChannelActionPayload(
         List<String> admins,
         List<String> mutedPlayers,
         List<String> invitedPlayers,
-        String inviteCode
+        String inviteCode,
+        boolean showInExplore
 ) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ServerboundChannelActionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MODID, "channel_action"));
@@ -46,6 +47,7 @@ public record ServerboundChannelActionPayload(
         writeStringList(buf, p.mutedPlayers);
         writeStringList(buf, p.invitedPlayers);
         writeUtf(buf, p.inviteCode);
+        buf.writeBoolean(p.showInExplore);
     }
 
     private static ServerboundChannelActionPayload read(ByteBuf buf) {
@@ -59,7 +61,8 @@ public record ServerboundChannelActionPayload(
         List<String> muted = readStringList(buf);
         List<String> invited = readStringList(buf);
         String inviteCode = readUtf(buf);
-        return new ServerboundChannelActionPayload(action, channelId, owner, isPublic, description, displayName, admins, muted, invited, inviteCode);
+        boolean showInExplore = buf.readBoolean();
+        return new ServerboundChannelActionPayload(action, channelId, owner, isPublic, description, displayName, admins, muted, invited, inviteCode, showInExplore);
     }
 
     private static void writeUtf(ByteBuf buf, String s) {
@@ -94,8 +97,8 @@ public record ServerboundChannelActionPayload(
             if (server == null) return;
             ModServerChannels msc = ModServerChannels.getInstance(server);
             switch (action) {
-                case CREATE -> msc.createChannel(channelId, ownerUuid);
-                case UPDATE_CONFIG -> msc.updateChannelConfig(channelId, isPublic, description, displayName, admins, mutedPlayers, invitedPlayers, inviteCode, ownerUuid);
+                case CREATE -> msc.createChannel(channelId, ownerUuid, isPublic, showInExplore);
+                case UPDATE_CONFIG -> msc.updateChannelConfig(channelId, isPublic, description, displayName, admins, mutedPlayers, invitedPlayers, inviteCode, ownerUuid, showInExplore);
                 case JOIN_MEMBER -> {
                     if (ownerUuid != null) {
                         msc.addMemberToChannel(channelId, ownerUuid.toString());
@@ -119,24 +122,101 @@ public record ServerboundChannelActionPayload(
                 }
                 case SEND_CHAT -> {
                     if (ownerUuid != null && !channelId.isEmpty() && !description.isEmpty()) {
-                        var entry = msc.getChannel(channelId);
-                        if (entry == null || !entry.members().contains(ownerUuid.toString())) {
+                        String senderName = player.getName().getString();
+                        String convType;
+                        UUID targetUuid = null;
+                        boolean muted = false;
+                        boolean notMember = false;
+
+                        if (channelId.contains(":")) {
+                            convType = "PRIVATE";
+                            String senderStr = ownerUuid.toString();
+                            String[] parts = channelId.split(":");
+                            String otherStr = parts[0].equals(senderStr) ? parts[1] : parts[0];
+                            try { targetUuid = UUID.fromString(otherStr); } catch (Exception ignored) {}
+                        } else {
+                            convType = "CHANNEL";
+                            var entry = msc.getChannel(channelId);
+                            if (entry == null || !entry.members().contains(ownerUuid.toString())) {
+                                notMember = true;
+                            } else if (entry.mutedPlayers().contains(ownerUuid.toString())) {
+                                muted = true;
+                            }
+                        }
+                        if (notMember) return;
+                        if (muted) {
+                            if (player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                                sp.sendSystemMessage(Component.translatable("chatsphere.mute.feedback"), false);
+                            }
                             return;
                         }
-                        String senderName = player.getName().getString();
-                        msc.addChatMessage(senderName, ownerUuid, description, channelId, "CHANNEL");
+
+                        msc.addChatMessage(senderName, ownerUuid, description, channelId, convType);
                         long now = System.currentTimeMillis();
                         ClientboundChatPayload relay = new ClientboundChatPayload(
-                                new ClientboundChatPayload.StoredMessage(senderName, ownerUuid, description, now, channelId, "CHANNEL"));
-                        for (ServerPlayer other : server.getPlayerList().getPlayers()) {
-                            if (!other.getUUID().equals(ownerUuid)) {
-                                other.connection.send(new ClientboundCustomPayloadPacket(relay));
+                                new ClientboundChatPayload.StoredMessage(senderName, ownerUuid, description, now, channelId, convType));
+
+                        if (targetUuid != null) {
+                            ServerPlayer target = server.getPlayerList().getPlayer(targetUuid);
+                            if (target != null) {
+                                target.connection.send(new ClientboundCustomPayloadPacket(relay));
+                            }
+                        } else {
+                            for (ServerPlayer other : server.getPlayerList().getPlayers()) {
+                                if (!other.getUUID().equals(ownerUuid)) {
+                                    other.connection.send(new ClientboundCustomPayloadPacket(relay));
+                                }
                             }
                         }
                     }
                 }
                 case REMOVE_CHANNEL -> {
                     msc.removeChannel(channelId, ownerUuid);
+                }
+                case TOGGLE_MUTE -> {
+                    if (!description.isEmpty() && !channelId.isEmpty()) {
+                        msc.toggleMute(channelId, description, ownerUuid);
+                    }
+                }
+                case TOGGLE_ADMIN -> {
+                    if (!description.isEmpty() && !channelId.isEmpty()) {
+                        msc.toggleAdmin(channelId, description, ownerUuid);
+                    }
+                }
+                case TOGGLE_INVITE -> {
+                    if (!description.isEmpty() && !channelId.isEmpty()) {
+                        msc.toggleInvite(channelId, description, ownerUuid);
+                    }
+                }
+                case LEAVE_CHANNEL -> {
+                    msc.leaveChannel(channelId, ownerUuid);
+                }
+                case LIST_PUBLIC -> {
+                    if (player instanceof net.minecraft.server.level.ServerPlayer sp) {
+                        var publicList = msc.getPublicChannels();
+                        sp.connection.send(new net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket(
+                                new ClientboundPublicChannelListPayload(publicList)));
+                    }
+                }
+                case CREATE_VOICE_ROOM -> {
+                    if (!description.isEmpty()) {
+                        msc.createVoiceRoom(channelId, description, ownerUuid);
+                    }
+                }
+                case DELETE_VOICE_ROOM -> {
+                    if (!description.isEmpty()) {
+                        msc.deleteVoiceRoom(channelId, description, ownerUuid);
+                    }
+                }
+                case JOIN_VOICE_ROOM -> {
+                    if (!description.isEmpty()) {
+                        msc.joinVoiceRoom(channelId, description, ownerUuid);
+                    }
+                }
+                case LEAVE_VOICE_ROOM -> {
+                    if (!description.isEmpty()) {
+                        msc.leaveVoiceRoom(channelId, description, ownerUuid);
+                    }
                 }
             }
         });
@@ -147,5 +227,7 @@ public record ServerboundChannelActionPayload(
         return TYPE;
     }
 
-    public enum Action { CREATE, UPDATE_CONFIG, JOIN_MEMBER, JOIN_BY_CODE, SEND_CHAT, REMOVE_CHANNEL }
+    public enum Action { CREATE, UPDATE_CONFIG, JOIN_MEMBER, JOIN_BY_CODE, SEND_CHAT, REMOVE_CHANNEL,
+        TOGGLE_MUTE, TOGGLE_ADMIN, TOGGLE_INVITE, LEAVE_CHANNEL, LIST_PUBLIC,
+        CREATE_VOICE_ROOM, DELETE_VOICE_ROOM, JOIN_VOICE_ROOM, LEAVE_VOICE_ROOM }
 }

@@ -1,9 +1,12 @@
 package cn.sarskin.ChatSphere.client.hud;
 
 import cn.sarskin.ChatSphere.ModMain;
+import cn.sarskin.ChatSphere.client.ChatHintsManager;
 import cn.sarskin.ChatSphere.client.ChatHistoryManager;
 import cn.sarskin.ChatSphere.client.ChatMessageData;
+import cn.sarskin.ChatSphere.client.PlayerSkinCache;
 import cn.sarskin.ChatSphere.config.ModClientConfig;
+import cn.sarskin.ChatSphere.config.ModServerConfig;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -18,8 +21,10 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class ChatHudOverlay implements LayeredDraw.Layer {
@@ -57,6 +62,8 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
 
         long now = System.currentTimeMillis();
 
+        renderStrongHint(guiGraphics, mc, screenWidth, screenHeight);
+
         int chatStartY = screenHeight - ICON_PADDING - ICON_SIZE - 10;
         int bubbleX = 4;
 
@@ -81,6 +88,24 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
         drawIcon(guiGraphics, mc, screenWidth, screenHeight, history, now);
     }
 
+    private void renderStrongHint(GuiGraphics g, Minecraft mc, int screenWidth, int screenHeight) {
+        if (!ModServerConfig.CONFIG.showStrongHint.get()) return;
+        ChatHintsManager hints = ChatHintsManager.getInstance();
+        Component hintText = hints.getCurrentHint();
+        if (hintText == null) return;
+
+        int ticks = hints.getHintTicks();
+        int alpha = ChatHintsManager.fadeAlpha(ticks, 10, 40, 10);
+        if (alpha <= 0) return;
+
+        int hintW = mc.font.width(hintText);
+        int hintX = (screenWidth - hintW) / 2;
+        int hintY = screenHeight - 22 - 30 - mc.font.lineHeight;
+        int bgAlpha = alpha / 2;
+        g.fill(hintX - 6, hintY - 3, hintX + hintW + 6, hintY + mc.font.lineHeight + 3, (bgAlpha << 24) | 0x000000);
+        g.drawString(mc.font, hintText, hintX, hintY, (alpha << 24) | 0xFFFFFF55, false);
+    }
+
     private Component buildBubbleText(ChatMessageData msg) {
         MutableComponent text = Component.literal("");
         boolean showName = ModClientConfig.CONFIG.showSenderName.get();
@@ -90,21 +115,28 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
             text.append(msg.senderName().copy().withStyle(ChatFormatting.AQUA));
             text.append(" ");
         }
-        text.append(msg.content().copy());
+        text.append(msg.renderedContent());
         if (showTime) {
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm");
-            text.append("  ").append(Component.literal(sdf.format(new Date(msg.timestamp()))).withStyle(ChatFormatting.GRAY));
+            text.append("  ").append(Component.literal(ChatHistoryManager.formatTimestamp(msg.timestamp())).withStyle(ChatFormatting.GRAY));
+        }
+        // Duplicate count
+        if (msg.duplicateCount() > 1) {
+            text.append(Component.literal(" x" + msg.duplicateCount()).withStyle(ChatFormatting.GOLD));
         }
         return text;
     }
 
     private void drawBubble(GuiGraphics guiGraphics, Minecraft mc, ChatMessageData msg,
                             Component bubbleText, int x, int y, int width, int height) {
-        int color = msg.isOwn() ? 0xFFDCF8C6 : 0xFFFFFFFF;
-        int borderColor = 0xFF999999;
+        boolean isDark = ModClientConfig.CONFIG.themeDark.get();
+        int color;
+        if (msg.isOwn()) {
+            color = ModClientConfig.parseHexColor(ModClientConfig.CONFIG.bubbleColorOwn.get(), isDark ? 0xFF1D3B5C : 0xFFD9E8FF);
+        } else {
+            color = ModClientConfig.parseHexColor(ModClientConfig.CONFIG.bubbleColorOther.get(), isDark ? 0xFF26262E : 0xFFFFFFFF);
+        }
 
         guiGraphics.fill(x, y, x + width, y + height, color);
-        guiGraphics.renderOutline(x, y, width, height, borderColor);
 
         int textX = x + BUBBLE_PADDING;
         if (ModClientConfig.CONFIG.showAvatar.get()) {
@@ -115,22 +147,12 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
         }
 
         int textY = y + (height - 9) / 2;
-        guiGraphics.drawString(mc.font, bubbleText, textX, textY, msg.isOwn() ? 0xFF000000 : 0xFF333333, false);
+        int textColor = msg.isOwn() ? 0xFFF0F0F0 : 0xFF1A1A1A;
+        guiGraphics.drawString(mc.font, bubbleText, textX, textY, textColor, false);
     }
 
     private void drawAvatar(GuiGraphics guiGraphics, Minecraft mc, ChatMessageData msg, int x, int y) {
-        PlayerSkin skin;
-        if (mc.getConnection() != null) {
-            PlayerInfo info = mc.getConnection().getPlayerInfo(msg.senderUuid());
-            if (info != null) {
-                skin = info.getSkin();
-            } else {
-                skin = DefaultPlayerSkin.get(msg.senderUuid());
-            }
-        } else {
-            skin = DefaultPlayerSkin.get(msg.senderUuid());
-        }
-        PlayerFaceRenderer.draw(guiGraphics, skin, x, y, AVATAR_SIZE);
+        PlayerFaceRenderer.draw(guiGraphics, PlayerSkinCache.getSkin(msg.senderUuid()), x, y, AVATAR_SIZE);
     }
 
     private void drawIcon(GuiGraphics guiGraphics, Minecraft mc, int screenWidth, int screenHeight,
@@ -162,6 +184,5 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
         guiGraphics.setColor(1f, 1f, 1f, alpha);
         guiGraphics.blit(CHAT_ICON, iconX, iconY, 0, 0, ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
         guiGraphics.setColor(1f, 1f, 1f, 1f);
-        guiGraphics.renderOutline(iconX, iconY, ICON_SIZE, ICON_SIZE, 0xFFFFFFFF);
     }
 }

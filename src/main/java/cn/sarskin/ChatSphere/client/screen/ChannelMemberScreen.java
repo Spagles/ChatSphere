@@ -2,363 +2,330 @@ package cn.sarskin.ChatSphere.client.screen;
 
 import cn.sarskin.ChatSphere.client.ChatDataStore;
 import cn.sarskin.ChatSphere.client.ChatHistoryManager;
+import cn.sarskin.ChatSphere.client.PlayerSkinCache;
 import cn.sarskin.ChatSphere.client.widget.StyledButton;
+import cn.sarskin.ChatSphere.network.ServerboundChannelActionPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.components.ObjectSelectionList;
+import net.minecraft.client.gui.components.PlayerFaceRenderer;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.multiplayer.PlayerInfo;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.*;
 
 public class ChannelMemberScreen extends Screen {
-    public enum Mode { MANAGE, ADMIN, INVITE, VIEW }
-
-    private static final int PANEL_WIDTH = 300;
-    private static final int PANEL_HEIGHT = 200;
+    private static final int ROW_H = 32;
+    private static final int CONTENT_Y = 68;
 
     private final Screen parent;
     private final String channelId;
-    private final Mode mode;
-    private final ChatDataStore.ChannelConfig config;
+    private ChatDataStore.ChannelConfig config;
+    private String localPlayerUuid;
+    private int scrollOffset;
+    private final List<PlayerRow> rows = new ArrayList<>();
+    private final List<AbstractWidget> scrollWidgets = new ArrayList<>();
 
-    private PlayerListWidget playerList;
-    private EditBox searchBox;
-    private StyledButton actionBtn;
-
-    public ChannelMemberScreen(Screen parent, String channelId, Mode mode) {
-        super(Component.translatable(getTitleKeyByMode(mode)));
+    public ChannelMemberScreen(Screen parent, String channelId) {
+        super(Component.translatable("screen.chatsphere.channel_member.title"));
         this.parent = parent;
         this.channelId = channelId;
-        this.mode = mode;
-        this.config = ChatHistoryManager.getInstance().getChannelConfig(channelId);
-    }
-
-    private static String getTitleKeyByMode(Mode mode) {
-        return switch (mode) {
-            case MANAGE -> "screen.chatsphere.channel_member.title_manage";
-            case ADMIN -> "screen.chatsphere.channel_member.title_admin";
-            case INVITE -> "screen.chatsphere.channel_member.title_invite";
-            case VIEW -> "screen.chatsphere.channel_member.title_view";
-        };
     }
 
     @Override
     protected void init() {
-        int cx = this.width / 2;
-        int topY = (this.height - PANEL_HEIGHT) / 2;
+        try { minecraft.gameRenderer.loadEffect(ResourceLocation.fromNamespaceAndPath("minecraft", "shaders/post/blur.json")); } catch (Exception ignored) {}
+        config = ChatHistoryManager.getInstance().getChannelConfig(channelId);
+        localPlayerUuid = minecraft != null && minecraft.player != null
+            ? minecraft.player.getUUID().toString() : null;
+        buildRows();
+        repositionWidgets();
+    }
 
-        if (mode != Mode.VIEW) {
-            searchBox = new EditBox(this.font, cx - 140, topY + 10, 180, 16,
-                    Component.translatable("screen.chatsphere.channel_member.search"));
-            searchBox.setMaxLength(32);
-            searchBox.setBordered(true);
-            searchBox.setHint(Component.translatable("screen.chatsphere.channel_member.search_hint"));
-            addWidget(searchBox);
+    // ---- permission group helpers ----
 
-            actionBtn = addRenderableWidget(StyledButton.styledBuilder(
-                    Component.translatable(getActionKey()),
-                    btn -> performAction()
-            ).bounds(cx + 45, topY + 10, 95, 16).style(
-                    mode == Mode.MANAGE ? StyledButton.Style.DANGER :
-                    mode == Mode.ADMIN ? StyledButton.Style.DEFAULT :
-                    StyledButton.Style.CONFIRM
-            ).build());
+    private enum Group { OWNER, ADMIN, MEMBER }
+
+    private Group getGroup(String uuid) {
+        if (uuid == null || uuid.isEmpty()) return Group.MEMBER;
+        if (uuid.equals(config.owner)) return Group.OWNER;
+        if (config.admins.contains(uuid)) return Group.ADMIN;
+        return Group.MEMBER;
+    }
+
+    // ---- row building ----
+
+    private void buildRows() {
+        rows.clear();
+        scrollWidgets.forEach(this::removeWidget);
+        scrollWidgets.clear();
+
+        for (String uuid : config.members) {
+            String name = resolvePlayerName(uuid);
+            boolean isOwner = uuid.equals(config.owner);
+            boolean isSelf = uuid.equals(localPlayerUuid);
+            rows.add(new PlayerRow(uuid, name, isOwner, isSelf, getGroup(uuid)));
         }
-
-        int listTop = (mode != Mode.VIEW) ? topY + 32 : topY + 10;
-        int listHeight = (mode != Mode.VIEW) ? PANEL_HEIGHT - 72 : PANEL_HEIGHT - 50;
-
-        playerList = new PlayerListWidget(cx - 140, listTop, 280, listHeight, 18);
-        refreshPlayerList();
-        addWidget(playerList);
-
-        addRenderableWidget(StyledButton.styledBuilder(
-                Component.translatable("screen.chatsphere.channel_member.back"),
-                btn -> onClose()
-        ).bounds(cx - 40, topY + PANEL_HEIGHT - 30, 80, 20).style(StyledButton.Style.CANCEL).build());
     }
 
-    private String getActionKey() {
-        return switch (mode) {
-            case MANAGE -> "screen.chatsphere.channel_member.action_mute";
-            case ADMIN -> "screen.chatsphere.channel_member.action_admin";
-            case INVITE -> "screen.chatsphere.channel_member.action_invite";
-            case VIEW -> "";
-        };
-    }
+    // ---- button logic ----
 
-    private void refreshPlayerList() {
-        playerList.clearEntries();
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.getConnection() == null) return;
+    private void repositionWidgets() {
+        int btnH = 16;
+        int btnW = 36;
+        int gap = 2;
+        int btnAreaX = width - 2 * (btnW + gap) + gap - 12;
 
-        Collection<PlayerInfo> onlinePlayers = mc.getConnection().getOnlinePlayers();
+        Group viewer = getGroup(localPlayerUuid);
 
-        if (mode == Mode.VIEW) {
-            for (PlayerInfo info : onlinePlayers) {
-                String uuid = info.getProfile().getId().toString();
-                if (!config.members.contains(uuid)) continue;
-                String name = info.getProfile().getName();
-                String role = getMemberRole(uuid);
-                boolean isOwner = uuid.equals(config.owner);
-                playerList.addListEntry(new PlayerEntry(uuid, name, role, isOwner));
+        for (int i = 0; i < rows.size(); i++) {
+            PlayerRow r = rows.get(i);
+            int y = CONTENT_Y + ROW_H + i * ROW_H - scrollOffset;
+            clearRowButtons(r);
+
+            if (r.isOwner || r.isSelf) continue;
+
+            int fx = btnAreaX;
+
+            if (viewer == Group.OWNER) {
+                boolean muted = config.mutedPlayers.contains(r.uuid);
+                r.btnMute = makeBtn(
+                    muted ? "screen.chatsphere.channel_member.btn_unmute" : "screen.chatsphere.channel_member.btn_mute",
+                    b -> toggleMute(r.uuid), fx, y, btnH,
+                    muted ? StyledButton.Style.DANGER : StyledButton.Style.DEFAULT,
+                    "screen.chatsphere.channel_member.tip_mute");
+                fx += btnW + gap;
+
+                boolean adm = config.admins.contains(r.uuid);
+                r.btnAdmin = makeBtn(
+                    adm ? "screen.chatsphere.channel_member.btn_demote" : "screen.chatsphere.channel_member.btn_admin",
+                    b -> toggleAdmin(r.uuid), fx, y, btnH,
+                    adm ? StyledButton.Style.TOGGLE_ON : StyledButton.Style.DEFAULT,
+                    "screen.chatsphere.channel_member.tip_admin");
+
+            } else if (viewer == Group.ADMIN && r.group == Group.MEMBER) {
+                boolean muted = config.mutedPlayers.contains(r.uuid);
+                r.btnMute = makeBtn(
+                    muted ? "screen.chatsphere.channel_member.btn_unmute" : "screen.chatsphere.channel_member.btn_mute",
+                    b -> toggleMute(r.uuid), fx, y, btnH,
+                    muted ? StyledButton.Style.DANGER : StyledButton.Style.DEFAULT,
+                    "screen.chatsphere.channel_member.tip_mute");
             }
-            return;
+            // viewer == Group.MEMBER → no buttons
         }
+    }
 
-        if (mc.player == null) return;
+    // ---- widget helpers ----
 
-        if (mode == Mode.INVITE) {
-            for (PlayerInfo info : onlinePlayers) {
-                String uuid = info.getProfile().getId().toString();
-                if (uuid.equals(mc.player.getUUID().toString())) continue;
-                String name = info.getProfile().getName();
-                boolean isExisting = config.invitedPlayers.contains(uuid);
-                boolean isOwner = uuid.equals(config.owner);
-                playerList.addListEntry(new PlayerEntry(uuid, name, isExisting, isOwner));
+    private StyledButton makeBtn(String labelKey, Button.OnPress action, int fx, int y, int btnH,
+                                  StyledButton.Style style, String tipKey) {
+        StyledButton btn = StyledButton.styledBuilder(Component.translatable(labelKey), action)
+            .bounds(fx, y + (ROW_H - btnH) / 2, 36, btnH).style(style).build();
+        btn.setTooltip(Tooltip.create(Component.translatable(tipKey)));
+        addActionWidget(btn);
+        return btn;
+    }
+
+    private void clearRowButtons(PlayerRow r) {
+        if (r.btnMute != null) { removeWidget(r.btnMute); r.btnMute = null; }
+        if (r.btnAdmin != null) { removeWidget(r.btnAdmin); r.btnAdmin = null; }
+    }
+
+    private AbstractWidget addActionWidget(AbstractWidget w) {
+        scrollWidgets.add(w);
+        return addRenderableWidget(w);
+    }
+
+    private void rebuild() {
+        clearWidgets();
+        init();
+    }
+
+    // ---- toggle actions ----
+
+    private void toggleMute(String uuid) { sendAction(ServerboundChannelActionPayload.Action.TOGGLE_MUTE, uuid); }
+    private void toggleAdmin(String uuid) { sendAction(ServerboundChannelActionPayload.Action.TOGGLE_ADMIN, uuid); }
+
+    private void sendAction(ServerboundChannelActionPayload.Action actionType, String targetUuid) {
+        if (minecraft != null && minecraft.getConnection() != null && minecraft.player != null) {
+            minecraft.getConnection().getConnection().send(
+                new net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(
+                    new ServerboundChannelActionPayload(actionType, channelId, minecraft.player.getUUID(),
+                        false, targetUuid, "", List.of(), List.of(), List.of(), "", true)));
+        }
+        rebuild();
+    }
+
+    // ---- private whisper ----
+
+    private void startWhisper(String targetUuid, String targetName) {
+        if (minecraft == null || minecraft.player == null) return;
+        UUID local = minecraft.player.getUUID();
+        UUID target = UUID.fromString(targetUuid);
+        String convId = local.compareTo(target) < 0 ? local + ":" + target : target + ":" + local;
+        ChatHistoryManager.getInstance().addPrivateConversation(convId, Component.literal(targetName));
+        minecraft.setScreen(new ModChatScreen("/msg " + targetName + " "));
+    }
+
+    // ---- tick (real-time update) ----
+
+    @Override
+    public void tick() {
+        ChatDataStore.ChannelConfig latest = ChatHistoryManager.getInstance().getChannelConfig(channelId);
+        if (latest != config) {
+            config = latest;
+            rebuild();
+        }
+    }
+
+    // ---- render ----
+
+    @Override
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
+        super.render(g, mouseX, mouseY, partialTick);
+        g.drawString(font, title, width / 2 - font.width(title) / 2, 14, 0xFFFFFF, false);
+        g.fill(10, CONTENT_Y - 6, width - 10, CONTENT_Y - 5, 0x225A4A7E);
+
+        int online = 0;
+        if (minecraft != null && minecraft.getConnection() != null) {
+            for (String uuid : config.members) {
+                if (minecraft.getConnection().getPlayerInfo(UUID.fromString(uuid)) != null) online++;
             }
-        } else {
-            Set<String> existingSet = getExistingSet();
-            for (PlayerInfo info : onlinePlayers) {
-                String uuid = info.getProfile().getId().toString();
-                if (!config.members.contains(uuid)) continue;
-                String name = info.getProfile().getName();
-                boolean isExisting = existingSet.contains(uuid);
-                boolean isOwner = uuid.equals(config.owner);
-                playerList.addListEntry(new PlayerEntry(uuid, name, isExisting, isOwner));
+        }
+        g.drawString(font, Component.translatable("screen.chatsphere.channel_member.info_count",
+            config.members.size(), online, config.admins.size(), config.mutedPlayers.size()),
+            30, CONTENT_Y + 4, 0xFF888888, false);
+
+        int y = CONTENT_Y + ROW_H;
+        for (int i = 0; i < rows.size(); i++) {
+            PlayerRow r = rows.get(i);
+            int ry = y + i * ROW_H - scrollOffset;
+            if (ry < CONTENT_Y - ROW_H || ry > height) continue;
+
+            boolean hovered = mouseX >= 10 && mouseX <= width - 10 && mouseY >= ry && mouseY < ry + ROW_H;
+            int bg = r.isOwner ? 0x226644AA : (r.isSelf ? 0x22446688 : (hovered ? 0x22333388 : 0));
+            if (bg != 0) g.fill(10, ry, width - 10, ry + ROW_H, bg);
+
+            drawPlayerHead(g, r.uuid, 14, ry + 6, 10);
+
+            int nameColor = r.group == Group.OWNER ? 0xFFAA88FF : (r.isSelf ? 0xFFFFFF88 : 0xFFCCCCCC);
+            g.drawString(font, r.name, 28, ry + 3, nameColor, false);
+            String uuidText = r.uuid.substring(0, Math.min(8, r.uuid.length()));
+            g.drawString(font, uuidText, 28, ry + 13, 0xFF555555, false);
+
+            // group label next to uuid
+            Component groupLabel = getGroupLabel(r);
+            if (groupLabel != null) {
+                int labelX = 28 + font.width(uuidText) + 6;
+                g.drawString(font, groupLabel, labelX, ry + 13, r.group == Group.OWNER ? 0xFFAA88FF : 0xFFFFFF88, false);
             }
         }
     }
 
-    private String getMemberRole(String uuid) {
-        if (uuid.equals(config.owner)) return "owner";
-        if (config.admins.contains(uuid)) return "admin";
-        if (config.members.contains(uuid)) return "member";
-        return "";
+    private Component getGroupLabel(PlayerRow r) {
+        if (r.group == Group.OWNER) return Component.translatable("screen.chatsphere.channel_member.role_owner");
+        if (r.isSelf) return Component.translatable("screen.chatsphere.channel_member.role_self");
+        if (r.group == Group.ADMIN) return Component.translatable("screen.chatsphere.channel_member.role_admin");
+        return null;
     }
 
-    private Set<String> getExistingSet() {
-        return switch (mode) {
-            case MANAGE -> new HashSet<>(config.mutedPlayers);
-            case ADMIN -> new HashSet<>(config.admins);
-            case INVITE -> new HashSet<>(config.invitedPlayers);
-            case VIEW -> Set.of();
-        };
+    // ---- draw helpers ----
+
+    private void drawPlayerHead(GuiGraphics g, String uuidStr, int x, int y, int size) {
+        try {
+            PlayerFaceRenderer.draw(g, PlayerSkinCache.getSkin(UUID.fromString(uuidStr)), x, y, size);
+        } catch (Exception ignored) {}
     }
 
-    private void performAction() {
-        PlayerEntry selected = playerList.getSelected();
-        if (selected == null || selected.isOwner) return;
-        List<String> targetSet = getTargetSet();
-        if (selected.isExisting) {
-            targetSet.remove(selected.uuid);
-            playerList.removeListEntry(selected);
-        } else {
-            targetSet.add(selected.uuid);
-            playerList.markExisting(selected.uuid);
-            selected.isExisting = true;
+    private String resolvePlayerName(String uuid) {
+        if (minecraft != null && minecraft.getConnection() != null) {
+            for (PlayerInfo info : minecraft.getConnection().getOnlinePlayers()) {
+                if (info.getProfile().getId().toString().equals(uuid)) {
+                    config.playerNames.put(uuid, info.getProfile().getName());
+                    return info.getProfile().getName();
+                }
+            }
         }
-        ChatHistoryManager.getInstance().updateChannelConfig(channelId, config);
+        if (config.playerNames.containsKey(uuid)) return config.playerNames.get(uuid);
+        if (ChatHistoryManager.getInstance().getPlayerName(uuid) != null)
+            return ChatHistoryManager.getInstance().getPlayerName(uuid);
+        return uuid.length() >= 8 ? uuid.substring(0, 8) : uuid;
     }
 
-    private List<String> getTargetSet() {
-        return switch (mode) {
-            case MANAGE -> config.mutedPlayers;
-            case ADMIN -> config.admins;
-            case INVITE -> config.invitedPlayers;
-            case VIEW -> List.of();
-        };
+    // ---- input ----
+
+    @Override
+    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (mx < 10 || mx > width - 10) return false;
+        scrollOffset -= (int) (sy * 20);
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, rows.size() * ROW_H - (height - CONTENT_Y - 40))));
+        repositionWidgets();
+        return true;
     }
 
     @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(guiGraphics, mouseX, mouseY, partialTick);
-
-        int cx = this.width / 2;
-        int topY = (this.height - PANEL_HEIGHT) / 2;
-
-        guiGraphics.fill(cx - PANEL_WIDTH / 2, topY, cx + PANEL_WIDTH / 2, topY + PANEL_HEIGHT, 0xCC222244);
-        guiGraphics.renderOutline(cx - PANEL_WIDTH / 2, topY, PANEL_WIDTH, PANEL_HEIGHT, 0xFF6666AA);
-
-        String titleStr = this.title.getString();
-        guiGraphics.drawString(this.font, titleStr,
-                cx - this.font.width(titleStr) / 2, topY + 2, 0xFFFFFFFF, false);
-
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+    public boolean mouseClicked(double mx, double my, int btn) {
+        if (btn == 1) {
+            int y = CONTENT_Y + ROW_H;
+            for (int i = 0; i < rows.size(); i++) {
+                PlayerRow r = rows.get(i);
+                int ry = y + i * ROW_H - scrollOffset;
+                if (mx >= 10 && mx <= width - 10 && my >= ry && my < ry + ROW_H && !r.isOwner && !r.isSelf) {
+                    startWhisper(r.uuid, r.name);
+                    return true;
+                }
+            }
+        }
+        return super.mouseClicked(mx, my, btn);
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        return super.mouseClicked(mouseX, mouseY, button);
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (keyCode == 256) {
-            onClose();
-            return true;
-        }
-        if (searchBox != null && searchBox.keyPressed(keyCode, scanCode, modifiers)) {
-            filterPlayerList();
-            return true;
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
-    }
-
-    @Override
-    public boolean charTyped(char codePoint, int modifiers) {
-        if (searchBox != null && searchBox.charTyped(codePoint, modifiers)) {
-            filterPlayerList();
-            return true;
-        }
-        return super.charTyped(codePoint, modifiers);
-    }
-
-    private void filterPlayerList() {
-        String query = searchBox.getValue().toLowerCase();
-        for (int i = 0; i < playerList.children().size(); i++) {
-            PlayerEntry entry = (PlayerEntry) playerList.children().get(i);
-            boolean visible = query.isEmpty() || entry.name.toLowerCase().contains(query);
-            entry.setVisible(visible);
-        }
-    }
-
-    @Override
-    public boolean isPauseScreen() {
-        return false;
+    public boolean keyPressed(int k, int s, int m) {
+        if (k == 256) { onClose(); return true; }
+        return super.keyPressed(k, s, m);
     }
 
     @Override
     public void onClose() {
-        ChatHistoryManager.getInstance().save();
-        if (this.minecraft != null) {
-            this.minecraft.setScreen(new ChannelConfigScreen(parent, channelId));
-        }
+        ChatHistoryManager.getInstance().saveNow();
+        if (minecraft != null) minecraft.setScreen(new ChannelConfigScreen(parent, channelId, 1));
     }
 
-    private static class PlayerEntry extends ObjectSelectionList.Entry<PlayerEntry> {
+    @Override
+    public boolean isPauseScreen() { return false; }
+
+    @Override
+    public void removed() {
+        try { minecraft.gameRenderer.loadEffect(null); } catch (Exception ignored) {}
+    }
+
+    @Override
+    public void renderBackground(GuiGraphics g, int mx, int my, float pt) {
+        super.renderBackground(g, mx, my, pt);
+    }
+
+    // ---- inner types ----
+
+    private static class PlayerRow {
         final String uuid;
         final String name;
-        boolean isExisting;
         final boolean isOwner;
-        final String role;
-        private boolean visible = true;
+        final boolean isSelf;
+        final Group group;
+        AbstractWidget btnMute, btnAdmin;
 
-        PlayerEntry(String uuid, String name, boolean isExisting, boolean isOwner) {
+        PlayerRow(String uuid, String name, boolean isOwner, boolean isSelf, Group group) {
             this.uuid = uuid;
             this.name = name;
-            this.isExisting = isExisting;
             this.isOwner = isOwner;
-            this.role = "";
-        }
-
-        PlayerEntry(String uuid, String name, String role, boolean isOwner) {
-            this.uuid = uuid;
-            this.name = name;
-            this.isExisting = true;
-            this.isOwner = isOwner;
-            this.role = role;
-        }
-
-        void setVisible(boolean v) { this.visible = v; }
-
-        @Override
-        public void render(GuiGraphics guiGraphics, int index, int top, int left, int width, int height, int mouseX, int mouseY, boolean hovering, float partialTick) {
-            int bgColor;
-            if (isOwner) bgColor = 0x556644AA;
-            else if (isExisting) bgColor = 0x55338833;
-            else bgColor = 0x33333388;
-            if (hovering) bgColor = 0x556666AA;
-            guiGraphics.fill(left, top, left + width, top + height, bgColor);
-            int textColor = isOwner ? 0xFFAA88FF : (isExisting ? 0xFF88FF88 : 0xFFCCCCCC);
-            guiGraphics.drawString(Minecraft.getInstance().font, name, left + 4, top + 3, textColor, false);
-            if (isOwner) {
-                guiGraphics.drawString(Minecraft.getInstance().font,
-                        Component.translatable("screen.chatsphere.channel_member.owner"),
-                        left + width - 30, top + 3, 0xFFAA88FF, false);
-            } else if (!role.isEmpty()) {
-                guiGraphics.drawString(Minecraft.getInstance().font,
-                        Component.translatable("screen.chatsphere.channel_member.role_" + role),
-                        left + width - 30, top + 3, 0xFF8888FF, false);
-            } else if (isExisting) {
-                guiGraphics.drawString(Minecraft.getInstance().font,
-                        Component.translatable("screen.chatsphere.channel_member.checked"),
-                        left + width - 14, top + 3, 0xFF44FF44, false);
-            }
-        }
-
-        @Override
-        public Component getNarration() {
-            return Component.literal(name);
-        }
-    }
-
-    private static class PlayerListWidget extends ObjectSelectionList<PlayerEntry> {
-        private PlayerEntry selected;
-
-        PlayerListWidget(int x, int y, int w, int h, int itemHeight) {
-            super(Minecraft.getInstance(), w, h, y, itemHeight);
-            this.setX(x);
-        }
-
-        @Override
-        protected void renderListBackground(GuiGraphics guiGraphics) {
-        }
-
-        @Override
-        protected void renderListSeparators(GuiGraphics guiGraphics) {
-        }
-
-        protected void clearEntries() {
-            this.children().clear();
-            selected = null;
-        }
-
-        void addListEntry(PlayerEntry entry) {
-            super.addEntry(entry);
-        }
-
-        void removeListEntry(PlayerEntry entry) {
-            super.removeEntry(entry);
-            if (selected == entry) selected = null;
-        }
-
-        void markExisting(String uuid) {
-            for (PlayerEntry e : this.children()) {
-                if (e.uuid.equals(uuid)) {
-                    e.isExisting = true;
-                    break;
-                }
-            }
-        }
-
-        public PlayerEntry getSelected() { return selected; }
-
-        @Override
-        public void setSelected(PlayerEntry entry) {
-            super.setSelected(entry);
-            selected = entry;
-        }
-
-        @Override
-        protected int getScrollbarPosition() {
-            return this.getRight() - 6;
-        }
-
-        @Override
-        protected void renderListItems(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-            int y0 = this.getY();
-            for (int i = 0; i < this.children().size(); i++) {
-                PlayerEntry entry = this.children().get(i);
-                if (!entry.visible) continue;
-                int y = y0 + i * this.itemHeight - (int) this.getScrollAmount();
-                if (y < this.getY() - this.itemHeight || y > this.getY() + this.height) continue;
-                entry.render(guiGraphics, i, y, this.getX(), this.getWidth(), this.itemHeight, mouseX, mouseY, entry == this.selected, partialTick);
-            }
+            this.isSelf = isSelf;
+            this.group = group;
         }
     }
 }

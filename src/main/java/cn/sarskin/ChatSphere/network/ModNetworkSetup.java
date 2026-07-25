@@ -29,5 +29,25 @@ public class ModNetworkSetup {
                 ClientboundChatPayload.STREAM_CODEC,
                 ClientboundChatPayload::handle
         );
+        registrar.playToServer(
+                ServerboundPermissionCheckPayload.TYPE,
+                ServerboundPermissionCheckPayload.STREAM_CODEC,
+                ServerboundPermissionCheckPayload::handle
+        );
+        registrar.playToClient(
+                ClientboundPermissionResponsePayload.TYPE,
+                ClientboundPermissionResponsePayload.STREAM_CODEC,
+                ClientboundPermissionResponsePayload::handle
+        );
+        registrar.playToClient(
+                ClientboundPublicChannelListPayload.TYPE,
+                ClientboundPublicChannelListPayload.STREAM_CODEC,
+                ClientboundPublicChannelListPayload::handle
+        );
+        registrar.playToServer(
+                ServerboundConfigUpdatePayload.TYPE,
+                ServerboundConfigUpdatePayload.STREAM_CODEC,
+                ServerboundConfigUpdatePayload::handle
+        );
     }
 }

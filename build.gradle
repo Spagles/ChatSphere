@@ -31,7 +31,8 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // Add here additional repositories if required by some of the dependencies below.
+    maven { url = 'https://maven.maxhenkel.de/repository/public' }
+    maven { url = 'https://repo.plasmoverse.com/releases' }
 }
 
 base {
@@ -122,6 +123,9 @@ configurations {
 }
 
 dependencies {
+    compileOnly "de.maxhenkel.voicechat:voicechat-api:2.1.12"
+    compileOnly "su.plo.voice.api:server:2.1.13"
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
@@ -185,6 +189,7 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+    exclude '**/buildtool/**'
 }
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.

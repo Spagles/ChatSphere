@@ -3,10 +3,11 @@ package cn.sarskin.ChatSphere.client.widget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
 
 public class StyledButton extends Button {
-    private final Style style;
+    private Style style;
 
     public StyledButton(int x, int y, int width, int height, Component message, OnPress onPress) {
         super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
@@ -20,6 +21,10 @@ public class StyledButton extends Button {
 
     public static Builder styledBuilder(Component message, OnPress onPress) {
         return new Builder(message, onPress);
+    }
+
+    public void setStyle(Style style) {
+        this.style = style;
     }
 
     @Override
@@ -40,10 +45,13 @@ public class StyledButton extends Button {
         guiGraphics.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height, bgColor);
         guiGraphics.renderOutline(this.getX(), this.getY(), this.width, this.height, borderColor);
 
+        var mcFont = Minecraft.getInstance().font;
         Component msg = this.getMessage();
-        int tx = this.getX() + (this.width - Minecraft.getInstance().font.width(msg)) / 2;
+        int tx = this.getX() + (this.width - mcFont.width(msg)) / 2;
         int ty = this.getY() + (this.height - 8) / 2;
-        guiGraphics.drawString(Minecraft.getInstance().font, msg, tx, ty, textColor, false);
+        guiGraphics.enableScissor(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height);
+        guiGraphics.drawString(mcFont, msg, tx, ty, textColor, false);
+        guiGraphics.disableScissor();
     }
 
     public enum Style {
@@ -89,6 +97,7 @@ public class StyledButton extends Button {
         private int height = 20;
         private Style style = Style.DEFAULT;
         private boolean active = true;
+        private Component tooltip;
 
         Builder(Component message, OnPress onPress) {
             this.message = message;
@@ -114,9 +123,17 @@ public class StyledButton extends Button {
             return this;
         }
 
+        public Builder tooltip(Component tooltip) {
+            this.tooltip = tooltip;
+            return this;
+        }
+
         public StyledButton build() {
             StyledButton btn = new StyledButton(x, y, width, height, message, onPress, style);
             btn.active = this.active;
+            if (tooltip != null) {
+                btn.setTooltip(Tooltip.create(tooltip));
+            }
             return btn;
         }
     }

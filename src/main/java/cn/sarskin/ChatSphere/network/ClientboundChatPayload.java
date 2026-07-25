@@ -69,10 +69,10 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         sm.senderUuid(),
                         Component.literal(""),
                         isOwn);
+            } else if (isOwn) {
+                // Own messages already added locally by ModChatScreen.sendChatMessage() with reply data
             } else if (ctype == ChatMessageData.ConversationType.PRIVATE) {
-                Component displayName = isOwn
-                        ? ChatHistoryManager.resolveOtherPartyName(convId, Component.literal(sm.senderName()))
-                        : Component.literal(sm.senderName());
+                Component displayName = ChatHistoryManager.resolveOtherPartyName(convId, Component.literal(sm.senderName()));
                 history.addPrivateConversation(convId, displayName);
                 history.addMessage(
                         Component.literal(sm.senderName()),

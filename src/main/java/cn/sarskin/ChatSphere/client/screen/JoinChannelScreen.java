@@ -42,12 +42,16 @@ public class JoinChannelScreen extends Screen {
         this.confirmBtn = this.addRenderableWidget(StyledButton.styledBuilder(
                 Component.translatable("screen.chatsphere.join_channel.confirm"),
                 btn -> confirm()
-        ).bounds(popupX + 10, popupY + 50, 80, 20).style(StyledButton.Style.CONFIRM).build());
+        ).bounds(popupX + 10, popupY + 50, 80, 20).style(StyledButton.Style.CONFIRM).tooltip(
+                Component.translatable("screen.chatsphere.join_channel.tip_confirm")
+        ).build());
 
         this.cancelBtn = this.addRenderableWidget(StyledButton.styledBuilder(
                 Component.translatable("screen.chatsphere.join_channel.cancel"),
                 btn -> cancel()
-        ).bounds(popupX + POPUP_WIDTH - 10 - 80, popupY + 50, 80, 20).style(StyledButton.Style.CANCEL).build());
+        ).bounds(popupX + POPUP_WIDTH - 10 - 80, popupY + 50, 80, 20).style(StyledButton.Style.CANCEL).tooltip(
+                Component.translatable("screen.chatsphere.join_channel.tip_cancel")
+        ).build());
     }
 
     @Override
@@ -104,7 +108,7 @@ public class JoinChannelScreen extends Screen {
                         new ServerboundChannelActionPayload(
                                 ServerboundChannelActionPayload.Action.JOIN_BY_CODE,
                                 "", this.minecraft.player.getUUID(),
-                                true, "", "", List.of(), List.of(), List.of(), code)));
+                                true, "", "", List.of(), List.of(), List.of(), code, true)));
             }
         }
         if (this.minecraft != null) {
