@@ -2,110 +2,390 @@
 
 # ChatSphere
 
-![UI](https://cdn.modrinth.com/data/cached_images/c3c31427b47c241789f88284f35c5946f68c02d1_0.webp)
----
+![ChatSphere](https://cdn.modrinth.com/data/cached_images/8cc6c14cc43b82f8053acb11d80eed267154bdab_0.webp)
 
-## Introduction
+A modern instant-messaging chat mod for Minecraft NeoForge (1.21.1). Replaces the vanilla chat with channels, private messaging, voice rooms, emoji, and a full GUI.
 
-**ChatSphere** is a mod that completely overhauls Minecraft's vanilla chat system, delivering a modern, instant-messaging-style experience. Create custom channels, message players privately, execute commands through a graphical interface, and stay notified with sounds—all in a clean, organized layout.
-
----
-
-## Feature Overview
-
-| Feature | Description |
-|---------|-------------|
-| **Channel System** | Create public or private channels with customizable names and descriptions|
-| **Private Messaging** | Click any player name in the right sidebar to start a private chat, with `/msg` and `/tell` support |
-| **Command Console** | Type commands starting with `/` directly in the chat interface; outputs appear in a dedicated console session |
-| **Graphical Settings** | Press `F7` to open the settings menu—toggle timestamps, sender names, avatars, and notification styles |
+> **License:** GNU LGPLv3
+> **Mod ID:** `chatsphere`
+> **Version:** 2.0.0
 
 ---
 
-## Key
+## Table of Contents
 
-| Key | Action |
-|-----|--------|
-| `T` | Opens the group chat interface (fully replaces vanilla chat) |
-| `/` | Opens the chat interface and switches to command input mode automatically |
-| `F7` | Opens the settings menu |
+- [Features](#features)
+- [Installation](#installation)
+- [Key Bindings](#key-bindings)
+- [Chat Overview](#chat-overview)
+- [Channel System](#channel-system)
+- [Private Messaging](#private-messaging)
+- [Command Console](#command-console)
+- [Emoji System](#emoji-system)
+- [Voice Chat Integration](#voice-chat-integration)
+- [Client Settings](#client-settings)
+- [Server Configuration](#server-configuration)
+- [Commands](#commands)
+- [Storage](#storage)
+- [Compatibility](#compatibility)
+- [Building from Source](#building-from-source)
+- [Network Protocol](#network-protocol)
+
+---
+
+## Features
+
+| Category | Details |
+|----------|---------|
+| **Full GUI Chat** | Replaces vanilla chat with an IM-style interface — left sidebar (channels/DMs), right sidebar (online members), scrollable message area, input bar |
+| **Channel System** | Public/private channels with invite codes, configurable names, descriptions, and explore visibility |
+| **Private Messaging** | Click any player name to start a DM; `/msg` and `/tell` support; grouped under "Private" in sidebar |
+| **Command Console** | Built-in command console with history recall (up/down arrows) |
+| **Emoji Picker** | 349 emoji from twemoji, rendered via custom font (PUA glyphs); category tabs, search, `:shortcode:` autocomplete |
+| **Voice Chat** | Dual integration — supports **Simple Voice Chat** (ISOLATED groups) and **PlasmoVoice** (broadcast source lines) |
+| **Chat Search** | Search within current conversation with result count and jump navigation |
+| **Reply System** | Quote-reply to any message; referenced in input bar |
+| **Context Menu** | Right-click → Copy or Quote Reply |
+| **Mention System** | `@username` autocomplete popup with online player filtering |
+| **Quick Phrases** | User-defined message shortcuts; add/remove via panel |
+| **Anti-Spam** | Duplicate message collapsing (server-side toggle) |
+| **Chat Bubbles (HUD)** | Heads-up overlay showing recent messages with avatar, name, timestamp, and configurable colors/radius |
+| **Message History** | Persistent history per conversation (100 locally, 200 on server); server backups every 30 min |
+| **Explore / Discovery** | Browse public channels with member/online counts |
+| **No Chat Reports Compat** | Displays NCR security status in the UI |
+| **Dark Theme** | Full dark theme with configurable bubble colors |
+| **Notifications** | Per-type sound toggles (mention, whisper, system, public), icon flash, screen popup |
+| **Mixin: Vanilla Chat Cancel** | Completely disables vanilla chat rendering — all messages go through ChatSphere |
+
+---
+
+## Installation
+
+1. Install **NeoForge 21.1.228** for Minecraft 1.21.1
+2. Drop the ChatSphere `.jar` into both `mods/` folders (client & server)
+3. (Optional) Install **Simple Voice Chat** and/or **PlasmoVoice** for voice room features
+
+Requires mod on **both server and client** for full functionality. Without server mod, client falls back to local-only storage mode.
+
+---
+
+## Key Bindings
+
+| Key | Default | Action |
+|-----|---------|--------|
+| `T` | `T` | Opens the main chat interface |
+| `/` | `/` | Opens chat in command mode |
+| `F7` | `F7` | Opens client settings menu |
+
+---
+
+## Chat Overview
+
+The main chat screen (`ModChatScreen`) is divided into:
+
+- **Left sidebar** — conversation list: channels grouped by category, DMs under "Private"; shows avatar, name, unread mention count; quick-switch on click; header buttons for explore (search icon), join by code (`→`), create (`+`) 
+- **Message area** — scrollable history with timestamps, sender avatar/name, message content (emoji rendered), duplicate count badge, time separators
+- **Right sidebar** — online member list for the active channel; shows skin avatar + name; includes voice room join/leave button
+- **Input bar** — text field with emoji button, quick phrases toggle, reply preview; supports `:shortcode:` and `@mention` autocomplete
+- **Search bar** — filter messages by keyword; up/down arrows to jump between matches
 
 ---
 
 ## Channel System
 
-### Creating a Channel
+### Creating
+- Click `+` next to "Channels" header, or type `#name` in input and press Enter
+- Set display name, description, and public/private status on creation
 
-- Click the **`+`** button next to the **"Channels"** header in the left sidebar, then enter a channel name
-- Or type `#channelname` in the input box and press Enter to create and switch to that channel instantly
+### Joining
+- Click `→` and enter the invite code
+- Click the search icon to browse public channels via the **Explore** screen
 
-### Joining a Channel
+### Management (gear icon ⚙)
+- **General tab:** display name, description, public/private toggle, show in explore toggle, invite code (regen)
+- **Members tab:** member list with admin badges, online indicators; promote/demote admin, mute/unmute, kick, transfer ownership
+- **Voice tab:** create/delete voice rooms; join/leave per room
+- **Delete tab:** confirm delete (owner) or leave channel (non-owner)
+- **Invite Players:** searchable player list; send/revoke invites
 
-- Click the **`=`** button next to the **"Channels"** header, then enter the **invite code** to join
-
-### Channel Management
-
-Click the **gear icon ⚙** next to a channel in the sidebar (visible only to the owner) to:
-
-- Toggle **Public/Private** status
-- Set a **Display Name** and **Description**
-- **Regenerate invite code**
-- **Delete the channel** (owner only)
-
-### Switching Channels
-
-- Click any channel name in the left sidebar
-- Or type `#channelname` in the input box and press Enter
-
-### Command List
-
-Type `/chatsphere help` in-game to see all available commands:
-
-| Command | Description |
-|---------|-------------|
-| `/chatsphere help` | Displays the help menu |
-| `/chatsphere list` | Lists all available channels |
-| `/chatsphere info <name>` | Shows detailed information about a specific channel |
+### Explore Screen
+Browse public channels across the server: name, description, member count, online count, join button. Server operators can configure minimum members to appear.
 
 ---
 
 ## Private Messaging
 
-- Click any **player name** in the right sidebar (online member list) to start a private conversation instantly
-- Use `/msg <player> <message>` or `/tell <player> <message>` to automatically create a private chat session
-- All private conversations are grouped under the **"Private"** section in the left sidebar for quick access
+- Click any player name in the right sidebar → opens a DM session
+- `/msg <player> <message>` or `/tell <player> <message>` → auto-creates DM
+- All DMs grouped under "Private" in left sidebar for quick access
+- Private conversations are preserved across reconnects
 
 ---
 
-##6. Command Console
+## Command Console
 
-- Click **"Commands" → "Console"** in the left sidebar to enter command mode
-- Type commands starting with `/` (the `/` is optional) and view execution results directly in the console session
-- Recent commands are saved—use the **Up/Down arrow keys** to quickly recall and re-run them
-
----
-
-## Settings Menu (F7)
-
-Press `F7` to open the settings menu and customize your experience:
-
-| Option | Description |
-|--------|-------------|
-| **Show Timestamp** | Display message timestamps next to chat bubbles |
-| **Show Sender Name** | Display who sent each message |
-| **Show Avatar** | Display player skin avatars next to messages |
-| **Enable Channels** | Disable to revert to vanilla chat behavior |
-| **New Message Sound** | Play a notification sound when new messages arrive |
-| **Icon Flash** | Flash the chat icon when new messages arrive |
-| **Screen Pop-up** | Show on-screen pop-ups for new messages |
-| **Show Right Sidebar** | Show/hide the online member list in channels |
+- Click **"Commands" → "Console"** in the left sidebar
+- Type commands with or without leading `/`
+- Output appears in the console session
+- Up/down arrow keys recall recent commands
 
 ---
 
-## Important Notes
+## Emoji System
 
-- This mod requires **installation on both the server and client** for full channel synchronization and messaging functionality
-- If the server does not have the mod installed, the client will automatically fall back to **local storage mode**—channels and messages are saved locally only
-- **Client Data**: In local mode, data is stored in `.minecraft/config/chatsphere_data/`
-- **Server Data**: Data is stored in the world save's `data/` directory, with automatic backups every **30 minutes** (up to **20** backups retained)
-- **Message Limits**: Client chat history is capped at **100** messages; server history is capped at **200**
+ChatSphere ships with **349 emoji** (351 total, 2 hidden) sourced from [twemoji](https://twemoji.twitter.com/).
+
+- **Picker:** Click the emoji button in the input bar → category tabs (Smileys, People, Animals, Food, Travel, Activities, Objects, Symbols, Flags) + search bar → click to insert
+- **Shortcodes:** Type `:smile:` in the input → autocomplete popup appears (up to 12 candidates, keyboard navigable) → press Enter or click to insert
+- **Rendering:** Emoji rendered via custom bitmap font with PUA codepoints; resolved at display time per-message
+- **Font sheet:** Generated by `EmojiSheetGenerator` build tool (16×16 grid sprite sheet)
+
+---
+
+## Voice Chat Integration
+
+ChatSphere supports **two** voice chat mods simultaneously. No extra configuration needed — it auto-detects which mods are installed.
+
+### Simple Voice Chat (SVC)
+
+| Feature | Support |
+|---------|:-------:|
+| Plugin entry point | `ChatSphereSvcPlugin` (`@ForgeVoicechatPlugin`) |
+| Group type | `ISOLATED` — per-channel voice groups |
+| Join/Leave | `VoiceIntegration.joinSvcGroup()` / `leaveSvcGroup()` via reflection |
+| API version | `voicechat-api:2.1.12` |
+
+- Each channel room gets an isolated SVC group tied to the channel ID
+- Players are moved into/out of the group on voice room join/leave
+- No server-side addon required beyond the SVC mod itself
+
+### PlasmoVoice (PV)
+
+| Feature | Support |
+|---------|:-------:|
+| Addon entry point | `PlasmoRoomAddon` (`@Addon`, `AddonInitializer`) |
+| Audio routing | Custom `ServerActivation` + `ServerSourceLine` → `ServerBroadcastSource` per player |
+| Join/Leave | Reflective call via `VoiceIntegration.joinPlasmoBroadcast()` |
+| API version | `server:2.1.13` |
+
+- Creates a `chatsphere_room` activation and source line
+- Each player in a voice room gets a broadcast source filtered to other room members
+- Room membership tracked in `ConcurrentHashMap`; auto-cleanup on empty
+
+### Dual Detection
+
+`VoiceIntegration` detects both mods at startup:
+
+```java
+svcAvailable = ModList.get().isLoaded("voicechat");
+plasmoAvailable = ModList.get().isLoaded("plasmovoice");
+```
+
+When a player joins/leaves a voice room, **both** integrations activate if the respective mod is present.
+
+---
+
+## Client Settings
+
+Press `F7` or use **Mod Menu** to open client settings.
+
+### General (UI)
+| Option | Default | Description |
+|--------|---------|-------------|
+| Show Timestamp | `true` | Time next to each message |
+| Show Sender Name | `true` | Sender name above message |
+| Show Avatar | `true` | Player skin avatar in sidebar |
+| Dark Theme | `true` | Dark mode UI |
+| Show Strong Hints | `true` | Enhanced UI hints |
+| Preserve Input | `true` | Keep typed text when reopening chat |
+| Show Right Sidebar | — | Toggle online member list |
+| Enable Channels | — | Disable to revert to vanilla chat |
+
+### Bubbles
+| Option | Default | Description |
+|--------|---------|-------------|
+| Own Bubble Color | `0x80000000` | Background color of own messages (ARGB) |
+| Other Bubble Color | `0x80404040` | Background color of other messages (ARGB) |
+| Corner Radius | `8` | Bubble corner radius in pixels |
+
+### Behavior
+| Option | Default | Description |
+|--------|---------|-------------|
+| Anti-Spam | `true` (server) | Collapse duplicate messages |
+| Max Chat History | `200` (server) | Messages stored per conversation |
+| Scroll History Limit | `200` | Max scrollable history lines |
+
+### Sound Settings
+| Option | Default | Description |
+|--------|---------|-------------|
+| Sound Enabled | `true` | Master toggle |
+| @Mention Sound | `true` | Sound when mentioned |
+| Private Message Sound | `true` | Sound on DM |
+| System Message Sound | `true` | Sound on system message |
+| Public Chat Sound | `false` | Sound on public channel messages |
+| Icon Flash | `true` | Flash icon on new message |
+| Screen Popup | `true` | Popup on new message |
+
+### Avatars
+| Option | Default | Description |
+|--------|---------|-------------|
+| Avatar Cache | `true` | Cache player skins to disk |
+| Custom Skin API URL | Mojang API | Override skin resolution endpoint |
+
+### NCR (No Chat Reports)
+| Option | Default | Description |
+|--------|---------|-------------|
+| NCR Compat | `true` | Enable NCR compatibility features (shown when NCR is installed) |
+| NCR Safety Status | — | Displays current NCR safety level (SECURE / INSECURE / SINGLEPLAYER / UNKNOWN) |
+| Prevents Chat Reports | `true` | Advertise `preventsChatReports` in server status (server config, togglable from client UI) |
+
+---
+
+## Server Configuration
+
+Server operators can configure via in-game **Server Config** screen or `config/chatsphere-server.toml`.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| Anti-Spam | `true` | Collapse duplicate messages automatically |
+| Enable Channels | `true` | Enable the channel system |
+| Max Chat History | `200` | Max messages per conversation |
+| Sync Default Channel | `true` | Auto-join new players to `#general` |
+| Channel History Enabled | `true` | Persist message history |
+| Explore Enabled | `true` | Enable public channel discovery |
+| Explore Min Members | `2` | Minimum members to appear in explore |
+| Backup Interval | `30` min | Channel data backup frequency |
+| Backup Keep | `10` | Max backup files to retain |
+| Show Strong Hint | `true` | Hint about encryption status |
+| Prevents Chat Reports | `true` | Advertises `preventsChatReports` in server status |
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/chatsphere help` | Show help menu |
+| `/chatsphere list` | List all available channels |
+| `/chatsphere info <name>` | Show channel details |
+| `#channelname` | Quick-switch to channel (in input field) |
+
+---
+
+## Storage
+
+```
+{gamedir}/ChatSphere/
+├── client/
+│   ├── singleplayer/<world-name>/
+│   │   ├── chatsphere_data.json      # Per-world: channels, invites, mute list, voice rooms
+│   │   └── (avatar cache)
+│   └── multiplayer/<server-ip>/
+│       ├── chatsphere_data.json      # Per-server: same structure
+│       └── (avatar cache)
+└── server/
+    ├── channels.json                 # All channel data (server-authoritative)
+    └── backups/
+        └── channels_<timestamp>.json # Periodic backups
+```
+
+Client data is saved asynchronously on changes. Server data is auto-backed up every N minutes (configurable, default 30, max 10 backups).
+
+---
+
+## Compatibility
+
+| Mod | Status | Details |
+|-----|--------|---------|
+| **Mod Menu** | ✅ | `IConfigScreenFactory` registered for client settings |
+| **Simple Voice Chat** | ✅ | Auto-detected; creates isolated voice groups per channel |
+| **PlasmoVoice** | ✅ | Auto-detected; voice rooms via broadcast source lines |
+| **No Chat Reports** | ✅ | Shows NCR security status colored indicator |
+| **Vanilla Chat** | 🔄 Replaced | `ChatComponentMixin` cancels all vanilla chat display |
+| **Server Status** | 🔄 Patched | `ServerStatusSerializerMixin` injects `preventsChatReports:true` |
+
+### Mixins
+
+| Target | Purpose |
+|--------|---------|
+| `ChatComponent.addMessage(Component)` | Cancel vanilla chat rendering; route to ChatSphere history |
+| `ServerStatus.getInstance()` | Inject `preventsChatReports: true` into server status JSON |
+
+---
+
+## Building from Source
+
+```bash
+./gradlew build
+```
+
+For the emoji sprite sheet (requires internet):
+```bash
+./gradlew runEmojiSheetGenerator
+```
+Downloads twemoji assets from CDN and generates `emoji.png` + `emoji.json` for the custom font provider.
+
+---
+
+## Network Protocol
+
+Version: `"1.0"`. All payloads use NeoForge custom packet API (`CustomPacketPayload`).
+
+| Payload | ID | Direction | Purpose |
+|---------|----|-----------|---------|
+| `ClientboundChatPayload` | `chatsphere:chat` | S→C | Relay a new chat message |
+| `ClientboundChannelSyncPayload` | `chatsphere:channel_sync` | S→C | Full channel list + player name map |
+| `ClientboundMessageSyncPayload` | `chatsphere:message_sync` | S→C | Message history replay on login |
+| `ClientboundPublicChannelListPayload` | `chatsphere:public_channel_list` | S→C | Discoverable channels for explore screen |
+| `ClientboundPermissionResponsePayload` | `chatsphere:perm_response` | S→C | Boolean permission check response |
+| `ServerboundChannelActionPayload` | `chatsphere:channel_action` | C→S | Channel CRUD (15 action types) |
+| `ServerboundPermissionCheckPayload` | `chatsphere:perm_check` | C→S | Permission check request (OP level 2) |
+| `ServerboundConfigUpdatePayload` | `chatsphere:config_update` | C→S | Runtime server config update (OP only) |
+
+### Channel Actions
+
+`ServerboundChannelActionPayload.Action` enum:
+
+`CREATE`, `UPDATE_CONFIG`, `JOIN_MEMBER`, `JOIN_BY_CODE`, `SEND_CHAT`, `REMOVE_CHANNEL`, `TOGGLE_MUTE`, `TOGGLE_ADMIN`, `TOGGLE_INVITE`, `LEAVE_CHANNEL`, `LIST_PUBLIC`, `CREATE_VOICE_ROOM`, `DELETE_VOICE_ROOM`, `JOIN_VOICE_ROOM`, `LEAVE_VOICE_ROOM`
+
+---
+
+## Screens Reference
+
+| Screen | Access | Purpose |
+|--------|--------|---------|
+| **ModChatScreen** | `T` key | Main chat UI |
+| **ConfigScreen** | `F7` key | Client settings (tabs: UI, Bubbles, Skin, NCR, Behavior, Sound) |
+| **ServerConfigScreen** | ConfigScreen → Server | Server operator settings |
+| **ChannelConfigScreen** | Gear icon ⚙ on channel | Per-channel settings (General, Members, Voice, Delete) |
+| **CreateChannelScreen** | `+` button | Create new channel |
+| **JoinChannelScreen** | `→` button | Join by invite code |
+| **ExploreServersScreen** | Search icon | Browse public channels |
+| **InvitePlayerScreen** | ChannelConfig → Invite | Send/revoke player invites |
+| **ChannelMemberScreen** | ChannelConfig → Members | Manage members (admin, mute, kick, transfer) |
+| **ChannelInfoScreen** | Channel context | Read-only channel details |
+| **ConfirmDeleteChannelScreen** | ChannelConfig → Delete | Confirm delete/leave channel |
+
+---
+
+## Widgets
+
+| Widget | Purpose |
+|--------|---------|
+| `StyledButton` | Configurable button with builder; multiple style presets (toggle on/off, normal, small, confirm/cancel) |
+| `ReplyBarWidget` | "Replying to <name>: <text>" bar above input; close button |
+| `QuickPhrasesPanel` | User-defined message shortcuts; add/edit/remove |
+| `MentionPopup` | `@username` autocomplete: player list, keyboard nav, click/enter to insert |
+| `EmojiPanel` | Full emoji picker: category tabs, search, scrollable grid (8×5), click to insert |
+| `EmojiAutoComplete` | `:shortcode:` popup: up to 12 candidates, keyboard selectable |
+| `ChatSearchWidget` | Search bar with match count + up/down navigation |
+| `ChatContextMenu` | Right-click menu: Copy, Reply |
+| `CopyToast` | "Copied!" toast with fade-out |
+
+---
+
+## Credits
+
+- **Author:** xwwsdd
+- **Emoji:** [twemoji](https://twemoji.twitter.com/) by Twitter (CC-BY 4.0)
+- **License:** GNU LGPLv3
