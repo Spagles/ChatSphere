@@ -41,6 +41,10 @@ logoFile="logo.png"
 # A text field displayed in the mod UI
 #credits="" #optional
 
+# Mixin configs
+[[mixins]]
+config="chatsphere.mixins.json"
+
 # The authors of the mod, displayed in the mod UI (optional)
 authors="xwwsdd"
 
@@ -48,10 +52,6 @@ authors="xwwsdd"
 description='''
 A sleek social chat mod for Minecraft with channels, private messaging, and a modern UI.
 '''
-
-# The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.
-#[[mixins]]
-#config="${mod_id}.mixins.json"
 
 # The [[accessTransformers]] block allows you to declare where your AT file is.
 # If this block is omitted, a fallback attempt will be made to load an AT from META-INF/accesstransformer.cfg
@@ -86,6 +86,13 @@ A sleek social chat mod for Minecraft with channels, private messaging, and a mo
     # This version range declares a minimum of the current minecraft version up to but not including the next major version
     versionRange="${minecraft_version_range}"
     ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="plasmovoice"
+    type="optional"
+    versionRange="[2.0,)"
+    ordering="AFTER"
     side="BOTH"
 
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares

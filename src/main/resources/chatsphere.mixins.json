@@ -1,0 +1,15 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "cn.sarskin.ChatSphere.mixin",
+    "compatibilityLevel": "JAVA_21",
+    "mixins": [
+        "ServerStatusSerializerMixin"
+    ],
+    "client": [
+        "ChatComponentMixin"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}

@@ -28,6 +28,8 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
         buf.writeLong(m.timestamp());
         writeUtf(buf, m.conversationId());
         writeUtf(buf, m.conversationType());
+        writeUtf(buf, m.replyContent());
+        writeUtf(buf, m.replySender());
     }
 
     private static ClientboundChatPayload read(ByteBuf buf) {
@@ -37,7 +39,9 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
         long timestamp = buf.readLong();
         String conversationId = readUtf(buf);
         String conversationType = readUtf(buf);
-        return new ClientboundChatPayload(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType));
+        String replyContent = readUtf(buf);
+        String replySender = readUtf(buf);
+        return new ClientboundChatPayload(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender));
     }
 
     @Override
@@ -69,10 +73,10 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         sm.senderUuid(),
                         Component.literal(""),
                         isOwn);
+            } else if (isOwn) {
+                // Own messages already added locally by ModChatScreen.sendChatMessage() with reply data
             } else if (ctype == ChatMessageData.ConversationType.PRIVATE) {
-                Component displayName = isOwn
-                        ? ChatHistoryManager.resolveOtherPartyName(convId, Component.literal(sm.senderName()))
-                        : Component.literal(sm.senderName());
+                Component displayName = ChatHistoryManager.resolveOtherPartyName(convId, Component.literal(sm.senderName()));
                 history.addPrivateConversation(convId, displayName);
                 history.addMessage(
                         Component.literal(sm.senderName()),
@@ -80,7 +84,9 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         Component.literal(sm.content()),
                         convId,
                         ctype,
-                        isOwn);
+                        isOwn,
+                        sm.replyContent(),
+                        sm.replySender());
             } else {
                 history.addMessage(
                         Component.literal(sm.senderName()),
@@ -88,7 +94,9 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         Component.literal(sm.content()),
                         convId,
                         ctype,
-                        isOwn);
+                        isOwn,
+                        sm.replyContent(),
+                        sm.replySender());
             }
         });
     }
@@ -117,5 +125,6 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
     }
 
     public record StoredMessage(String senderName, UUID senderUuid, String content, long timestamp,
-                                String conversationId, String conversationType) {}
+                                String conversationId, String conversationType,
+                                String replyContent, String replySender) {}
 }

@@ -2,9 +2,12 @@ package cn.sarskin.ChatSphere.server;
 
 import cn.sarskin.ChatSphere.ModMain;
 import static cn.sarskin.ChatSphere.ModMain.DEFAULT_CHANNEL_ID;
+import cn.sarskin.ChatSphere.config.ModServerConfig;
 import cn.sarskin.ChatSphere.network.ClientboundChannelSyncPayload;
 import cn.sarskin.ChatSphere.network.ClientboundMessageSyncPayload;
 import cn.sarskin.ChatSphere.network.ClientboundMessageSyncPayload.StoredMessage;
+import cn.sarskin.ChatSphere.network.ClientboundPublicChannelListPayload;
+import cn.sarskin.ChatSphere.storage.ModStoragePaths;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -32,13 +35,12 @@ public class ModServerChannels {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<MinecraftServer, ModServerChannels> INSTANCES = new ConcurrentHashMap<>();
     private static final int MAX_MESSAGE_HISTORY = 200;
-    private static final int BACKUP_KEEP_MAX = 20;
-    private static final int BACKUP_INTERVAL_MINUTES = 30;
     private static final String BACKUPS_DIR_NAME = "chatsphere_backups";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
     private final MinecraftServer server;
     private final Map<String, ChannelEntry> channels = new LinkedHashMap<>();
+    private final Map<String, String> knownPlayers = new LinkedHashMap<>();
     private final List<StoredMessage> messageHistory = new ArrayList<>();
     private boolean loaded;
     private long lastBackupTime;
@@ -59,6 +61,17 @@ public class ModServerChannels {
         INSTANCES.remove(server);
     }
 
+    public synchronized Map<String, String> getKnownPlayers() {
+        return new LinkedHashMap<>(knownPlayers);
+    }
+
+    public synchronized void learnPlayerName(String uuid, String name) {
+        if (uuid != null && name != null && !name.isEmpty() && !knownPlayers.containsKey(uuid)) {
+            knownPlayers.put(uuid, name);
+            save();
+        }
+    }
+
     public synchronized List<ChannelEntry> getAllChannels() {
         return new ArrayList<>(channels.values());
     }
@@ -67,12 +80,40 @@ public class ModServerChannels {
         return channels.get(id);
     }
 
-    public synchronized void createChannel(String id, UUID ownerUuid) {
+    public synchronized List<ClientboundPublicChannelListPayload.PublicChannelEntry> getPublicChannels() {
+        if (!ModServerConfig.CONFIG.exploreEnabled.get()) return List.of();
+        int minMembers = ModServerConfig.CONFIG.exploreMinMembers.get();
+        List<ClientboundPublicChannelListPayload.PublicChannelEntry> result = new ArrayList<>();
+        for (ChannelEntry e : channels.values()) {
+            if (!e.isPublic() || !e.showInExplore()) continue;
+            if (e.members().size() < minMembers) continue;
+            int onlineCount = 0;
+            for (String uid : e.members()) {
+                try {
+                    if (server.getPlayerList().getPlayer(UUID.fromString(uid)) != null)
+                        onlineCount++;
+                } catch (Exception ignored) {}
+            }
+            String dn = e.displayName() != null && !e.displayName().isEmpty()
+                    ? e.displayName() : e.id();
+            result.add(new ClientboundPublicChannelListPayload.PublicChannelEntry(
+                    e.id(), dn, e.description(),
+                    e.members().size(), onlineCount, e.inviteCode()));
+        }
+        return result;
+    }
+
+    public synchronized void createChannel(String id, UUID ownerUuid, boolean isPublic, boolean showInExplore) {
         if (channels.containsKey(id)) return;
+        String ownerStr = ownerUuid != null ? ownerUuid.toString() : "";
         List<String> members = new ArrayList<>();
-        if (ownerUuid != null) members.add(ownerUuid.toString());
-        ChannelEntry entry = new ChannelEntry(id, ownerUuid != null ? ownerUuid.toString() : "", true, "", "",
-                new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), members, generateInviteCode());
+        List<String> admins = new ArrayList<>();
+        if (ownerUuid != null) {
+            members.add(ownerStr);
+            admins.add(ownerStr);
+        }
+        ChannelEntry entry = new ChannelEntry(id, ownerStr, isPublic, "", "",
+                admins, new ArrayList<>(), new ArrayList<>(), members, generateInviteCode(), showInExplore, new ArrayList<>());
         channels.put(id, entry);
         save();
         broadcastSync();
@@ -80,7 +121,8 @@ public class ModServerChannels {
 
     public synchronized void updateChannelConfig(String channelId, boolean isPublic, String description, String displayName,
                                                   List<String> admins, List<String> mutedPlayers,
-                                                  List<String> invitedPlayers, String inviteCode, UUID requester) {
+                                                  List<String> invitedPlayers, String inviteCode, UUID requester,
+                                                  boolean showInExplore) {
         ChannelEntry entry = channels.get(channelId);
         if (entry == null) return;
         String reqStr = requester.toString();
@@ -88,7 +130,7 @@ public class ModServerChannels {
         String newCode = (inviteCode != null && !inviteCode.isEmpty()) ? inviteCode : entry.inviteCode();
         ChannelEntry updated = new ChannelEntry(channelId, entry.owner(), isPublic, description, displayName,
                 new ArrayList<>(admins), new ArrayList<>(mutedPlayers), new ArrayList<>(invitedPlayers),
-                new ArrayList<>(entry.members()), newCode);
+                new ArrayList<>(entry.members()), newCode, showInExplore, entry.voiceRooms());
         channels.put(channelId, updated);
         save();
         broadcastSync();
@@ -106,11 +148,14 @@ public class ModServerChannels {
 
     public void sendToPlayer(ServerPlayer player) {
         List<ChannelEntry> list = getAllChannels().stream()
-                .filter(e -> e.members().contains(player.getUUID().toString()))
+                .filter(e -> e.members().contains(player.getUUID().toString())
+                    || (ModServerConfig.CONFIG.syncDefaultChannel.get() && DEFAULT_CHANNEL_ID.equals(e.id())))
                 .collect(Collectors.toList());
         if (!list.isEmpty()) {
+            collectOnlinePlayerNames();
+            Map<String, String> kp = getKnownPlayers();
             player.connection.send(new ClientboundCustomPayloadPacket(
-                    new ClientboundChannelSyncPayload(list)));
+                    new ClientboundChannelSyncPayload(list, kp)));
         }
     }
 
@@ -132,6 +177,8 @@ public class ModServerChannels {
                         }
                     }
                     if (!isForPlayer) continue;
+                } else if (!ModServerConfig.CONFIG.channelHistoryEnabled.get()) {
+                    continue;
                 }
                 msgs.add(m);
             }
@@ -151,7 +198,7 @@ public class ModServerChannels {
                 ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
                         entry.description(), entry.displayName(),
                         new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
-                        new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode());
+                        new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode(), entry.showInExplore(), entry.voiceRooms());
                 channels.put(entry.id(), updated);
                 save();
                 broadcastSync();
@@ -162,9 +209,13 @@ public class ModServerChannels {
     }
 
     public void addChatMessage(String senderName, UUID senderUuid, String content,
-                                String conversationId, String conversationType) {
+                                 String conversationId, String conversationType,
+                                 String replyContent, String replySender) {
+        if (senderUuid != null && senderName != null && !senderName.isEmpty()) {
+            learnPlayerName(senderUuid.toString(), senderName);
+        }
         StoredMessage msg = new StoredMessage(senderName, senderUuid, content, System.currentTimeMillis(),
-                conversationId, conversationType);
+                conversationId, conversationType, replyContent, replySender);
         synchronized (messageHistory) {
             messageHistory.add(msg);
             if (messageHistory.size() > MAX_MESSAGE_HISTORY) {
@@ -186,17 +237,200 @@ public class ModServerChannels {
             ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
                     entry.description(), entry.displayName(),
                     new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
-                    new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode());
+                    new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode(), entry.showInExplore(),
+                    entry.voiceRooms());
             channels.put(channelId, updated);
             save();
             broadcastSync();
         }
     }
 
+    public synchronized void createVoiceRoom(String channelId, String roomName, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null) return;
+        String reqStr = requester.toString();
+        if (!entry.owner().equals(reqStr) && !entry.admins().contains(reqStr)) return;
+        String finalName = roomName.trim();
+        if (finalName.isEmpty() || finalName.length() > 32) return;
+        List<VoiceRoom> rooms = new ArrayList<>(entry.voiceRooms());
+        for (VoiceRoom vr : rooms) {
+            if (vr.name.equals(finalName)) return;
+        }
+        rooms.add(new VoiceRoom(finalName, new ArrayList<>()));
+        ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(),
+                new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
+                new ArrayList<>(entry.invitedPlayers()), new ArrayList<>(entry.members()),
+                entry.inviteCode(), entry.showInExplore(), rooms);
+        channels.put(channelId, updated);
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void deleteVoiceRoom(String channelId, String roomName, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null) return;
+        String reqStr = requester.toString();
+        if (!entry.owner().equals(reqStr) && !entry.admins().contains(reqStr)) return;
+        List<VoiceRoom> rooms = new ArrayList<>(entry.voiceRooms());
+        rooms.removeIf(vr -> vr.name.equals(roomName));
+        ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(),
+                new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
+                new ArrayList<>(entry.invitedPlayers()), new ArrayList<>(entry.members()),
+                entry.inviteCode(), entry.showInExplore(), rooms);
+        channels.put(channelId, updated);
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void joinVoiceRoom(String channelId, String roomName, UUID playerUuid) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null || playerUuid == null) return;
+        String puid = playerUuid.toString();
+        if (!entry.members().contains(puid)) return;
+        List<VoiceRoom> rooms = new ArrayList<>(entry.voiceRooms());
+        for (int i = 0; i < rooms.size(); i++) {
+            VoiceRoom vr = rooms.get(i);
+            List<String> newMembers = new ArrayList<>(vr.members);
+            if (vr.name.equals(roomName)) {
+                if (newMembers.contains(puid)) return;
+                newMembers.add(puid);
+                rooms.set(i, new VoiceRoom(vr.name, newMembers));
+            } else {
+                newMembers.remove(puid);
+                rooms.set(i, new VoiceRoom(vr.name, newMembers));
+            }
+        }
+        ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(),
+                new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
+                new ArrayList<>(entry.invitedPlayers()), new ArrayList<>(entry.members()),
+                entry.inviteCode(), entry.showInExplore(), rooms);
+        channels.put(channelId, updated);
+        save();
+        broadcastSync();
+        cn.sarskin.ChatSphere.client.voice.VoiceIntegration.joinVoiceRoom(channelId, roomName, playerUuid);
+    }
+
+    public synchronized void leaveVoiceRoom(String channelId, String roomName, UUID playerUuid) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null || playerUuid == null) return;
+        String puid = playerUuid.toString();
+        List<VoiceRoom> rooms = new ArrayList<>(entry.voiceRooms());
+        for (int i = 0; i < rooms.size(); i++) {
+            VoiceRoom vr = rooms.get(i);
+            if (vr.name.equals(roomName) && vr.members.contains(puid)) {
+                List<String> newMembers = new ArrayList<>(vr.members);
+                newMembers.remove(puid);
+                rooms.set(i, new VoiceRoom(vr.name, newMembers));
+                ChannelEntry updated = new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                        entry.description(), entry.displayName(),
+                        new ArrayList<>(entry.admins()), new ArrayList<>(entry.mutedPlayers()),
+                        new ArrayList<>(entry.invitedPlayers()), new ArrayList<>(entry.members()),
+                        entry.inviteCode(), entry.showInExplore(), rooms);
+                channels.put(channelId, updated);
+                save();
+                broadcastSync();
+                cn.sarskin.ChatSphere.client.voice.VoiceIntegration.leaveVoiceRoom(channelId, roomName, playerUuid);
+                return;
+            }
+        }
+    }
+
+    public synchronized void toggleMute(String channelId, String targetUuid, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null) return;
+        String reqStr = requester.toString();
+        if (!entry.owner().equals(reqStr) && !entry.admins().contains(reqStr)) return;
+        List<String> newMuted = new ArrayList<>(entry.mutedPlayers());
+        if (newMuted.contains(targetUuid)) newMuted.remove(targetUuid);
+        else newMuted.add(targetUuid);
+        channels.put(channelId, new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(),
+                new ArrayList<>(entry.admins()), newMuted,
+                new ArrayList<>(entry.invitedPlayers()),
+                new ArrayList<>(entry.members()), entry.inviteCode(), entry.showInExplore(), entry.voiceRooms()));
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void toggleAdmin(String channelId, String targetUuid, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null) return;
+        String reqStr = requester.toString();
+        if (!entry.owner().equals(reqStr)) return;
+        if (entry.owner().equals(targetUuid)) return;
+        List<String> newAdmins = new ArrayList<>(entry.admins());
+        if (newAdmins.contains(targetUuid)) newAdmins.remove(targetUuid);
+        else newAdmins.add(targetUuid);
+        channels.put(channelId, new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(), newAdmins,
+                new ArrayList<>(entry.mutedPlayers()),
+                new ArrayList<>(entry.invitedPlayers()),
+                new ArrayList<>(entry.members()), entry.inviteCode(), entry.showInExplore(), entry.voiceRooms()));
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void toggleInvite(String channelId, String targetUuid, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null) return;
+        List<String> newInvited = new ArrayList<>(entry.invitedPlayers());
+        if (newInvited.contains(targetUuid)) newInvited.remove(targetUuid);
+        else newInvited.add(targetUuid);
+        channels.put(channelId, new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(),
+                new ArrayList<>(entry.admins()),
+                new ArrayList<>(entry.mutedPlayers()), newInvited,
+                new ArrayList<>(entry.members()), entry.inviteCode(), entry.showInExplore(), entry.voiceRooms()));
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void kickMember(String channelId, String targetUuid, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null || requester == null) return;
+        String reqStr = requester.toString();
+        if (reqStr.equals(targetUuid)) return;
+        if (!entry.owner().equals(reqStr) && !entry.admins().contains(reqStr)) return;
+        if (!entry.owner().equals(reqStr) && entry.owner().equals(targetUuid)) return;
+        if (!entry.owner().equals(reqStr) && !entry.owner().equals(targetUuid) && entry.admins().contains(targetUuid)) return;
+        if (!entry.members().contains(targetUuid)) return;
+        List<String> newMembers = new ArrayList<>(entry.members());
+        newMembers.remove(targetUuid);
+        List<String> newAdmins = new ArrayList<>(entry.admins());
+        newAdmins.remove(targetUuid);
+        List<String> newMuted = new ArrayList<>(entry.mutedPlayers());
+        newMuted.remove(targetUuid);
+        channels.put(channelId, new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(), newAdmins, newMuted,
+                new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode(), entry.showInExplore(), entry.voiceRooms()));
+        save();
+        broadcastSync();
+    }
+
+    public synchronized void leaveChannel(String channelId, UUID requester) {
+        ChannelEntry entry = channels.get(channelId);
+        if (entry == null || requester == null) return;
+        String reqStr = requester.toString();
+        if (entry.owner().equals(reqStr)) return;
+        List<String> newMembers = new ArrayList<>(entry.members());
+        if (!newMembers.remove(reqStr)) return;
+        List<String> newAdmins = new ArrayList<>(entry.admins());
+        newAdmins.remove(reqStr);
+        channels.put(channelId, new ChannelEntry(entry.id(), entry.owner(), entry.isPublic(),
+                entry.description(), entry.displayName(), newAdmins,
+                new ArrayList<>(entry.mutedPlayers()),
+                new ArrayList<>(entry.invitedPlayers()), newMembers, entry.inviteCode(), entry.showInExplore(), entry.voiceRooms()));
+        save();
+        broadcastSync();
+    }
+
     public void addCommandMessage(String senderName, UUID senderUuid, String commandText) {
         addChatMessage(senderName, senderUuid, commandText,
                 "__commands__",
-                "COMMAND");
+                "COMMAND", "", "");
     }
 
     public List<StoredMessage> getRecentMessages(int count) {
@@ -207,24 +441,30 @@ public class ModServerChannels {
         }
     }
 
+    private void collectOnlinePlayerNames() {
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            knownPlayers.putIfAbsent(p.getUUID().toString(), p.getName().getString());
+        }
+    }
+
     private void broadcastSync() {
+        collectOnlinePlayerNames();
+        Map<String, String> kp = getKnownPlayers();
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             List<ChannelEntry> playerChannels = channels.values().stream()
                     .filter(e -> e.members().contains(p.getUUID().toString()))
                     .collect(Collectors.toList());
             p.connection.send(new ClientboundCustomPayloadPacket(
-                    new ClientboundChannelSyncPayload(playerChannels)));
+                    new ClientboundChannelSyncPayload(playerChannels, kp)));
         }
     }
 
     private Path getDataPath() {
-        return server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
-                .resolve("data").resolve("chatsphere_channels.json");
+        return ModStoragePaths.getServerDataDir().resolve("channels.json");
     }
 
     private Path getMessagesPath() {
-        return server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
-                .resolve("data").resolve("chatsphere_messages.json");
+        return ModStoragePaths.getServerDataDir().resolve("messages.json");
     }
 
     public synchronized void load() {
@@ -234,7 +474,7 @@ public class ModServerChannels {
         if (!Files.exists(path)) {
             channels.clear();
             channels.put(DEFAULT_CHANNEL_ID, new ChannelEntry(DEFAULT_CHANNEL_ID, "", true, "", "",
-                    List.of(), List.of(), List.of(), List.of(), generateInviteCode()));
+                    List.of(), List.of(), List.of(), List.of(), generateInviteCode(), true, List.of()));
             return;
         }
         try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -255,14 +495,23 @@ public class ModServerChannels {
                             readStringList(c, "mutedPlayers"),
                             readStringList(c, "invitedPlayers"),
                             readStringList(c, "members"),
-                            c.has("inviteCode") ? c.get("inviteCode").getAsString() : generateInviteCode()
+                            c.has("inviteCode") ? c.get("inviteCode").getAsString() : generateInviteCode(),
+                            !c.has("showInExplore") || c.get("showInExplore").getAsBoolean(),
+                            readVoiceRooms(c)
                     );
                     channels.put(entry.id(), entry);
                 }
             }
+            knownPlayers.clear();
+            if (obj.has("knownPlayers")) {
+                JsonObject kpObj = obj.getAsJsonObject("knownPlayers");
+                for (String key : kpObj.keySet()) {
+                    knownPlayers.put(key, kpObj.get(key).getAsString());
+                }
+            }
             if (!channels.containsKey(DEFAULT_CHANNEL_ID)) {
                 channels.put(DEFAULT_CHANNEL_ID, new ChannelEntry(DEFAULT_CHANNEL_ID, "", true, "", "",
-                        List.of(), List.of(), List.of(), List.of(), generateInviteCode()));
+                        List.of(), List.of(), List.of(), List.of(), generateInviteCode(), true, List.of()));
             }
         } catch (Exception e) {
             LOGGER.error("Failed to load server channels", e);
@@ -287,7 +536,9 @@ public class ModServerChannels {
                             m.get("content").getAsString(),
                             m.get("timestamp").getAsLong(),
                             m.has("conversationId") ? m.get("conversationId").getAsString() : DEFAULT_CHANNEL_ID,
-                            m.has("conversationType") ? m.get("conversationType").getAsString() : "CHANNEL"
+                            m.has("conversationType") ? m.get("conversationType").getAsString() : "CHANNEL",
+                            m.has("replyContent") ? m.get("replyContent").getAsString() : "",
+                            m.has("replySender") ? m.get("replySender").getAsString() : ""
                     );
                     messageHistory.add(sm);
                 }
@@ -312,6 +563,10 @@ public class ModServerChannels {
                     obj.addProperty("timestamp", m.timestamp());
                     obj.addProperty("conversationId", m.conversationId());
                     obj.addProperty("conversationType", m.conversationType());
+                    if (m.replyContent() != null && !m.replyContent().isEmpty()) {
+                        obj.addProperty("replyContent", m.replyContent());
+                        obj.addProperty("replySender", m.replySender());
+                    }
                     arr.add(obj);
                 }
             }
@@ -343,9 +598,27 @@ public class ModServerChannels {
                 writeStringList(c, "invitedPlayers", e.invitedPlayers());
                 writeStringList(c, "members", e.members());
                 c.addProperty("inviteCode", e.inviteCode());
+                c.addProperty("showInExplore", e.showInExplore());
+                JsonArray vrArr = new JsonArray();
+                for (VoiceRoom vr : e.voiceRooms()) {
+                    JsonObject vrObj = new JsonObject();
+                    vrObj.addProperty("name", vr.name());
+                    JsonArray mArr = new JsonArray();
+                    for (String m : vr.members()) mArr.add(m);
+                    vrObj.add("members", mArr);
+                    vrArr.add(vrObj);
+                }
+                c.add("voiceRooms", vrArr);
                 arr.add(c);
             }
             root.add("channels", arr);
+            if (!knownPlayers.isEmpty()) {
+                JsonObject kpObj = new JsonObject();
+                for (Map.Entry<String, String> e : knownPlayers.entrySet()) {
+                    kpObj.addProperty(e.getKey(), e.getValue());
+                }
+                root.add("knownPlayers", kpObj);
+            }
             try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
                 GSON.toJson(root, writer);
             }
@@ -356,13 +629,14 @@ public class ModServerChannels {
     }
 
     private void performBackupIfNeeded() {
-        long intervalMs = BACKUP_INTERVAL_MINUTES * 60 * 1000L;
+        int intervalMin = cn.sarskin.ChatSphere.config.ModServerConfig.CONFIG.backupIntervalMinutes.get();
+        if (intervalMin <= 0) return;
+        long intervalMs = intervalMin * 60 * 1000L;
         if (System.currentTimeMillis() - lastBackupTime < intervalMs) return;
         Path channelsPath = getDataPath();
         Path messagesPath = getMessagesPath();
         try {
-            Path backupDir = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT)
-                    .resolve("data").resolve(BACKUPS_DIR_NAME);
+            Path backupDir = ModStoragePaths.getServerDataDir().resolve(BACKUPS_DIR_NAME);
             Files.createDirectories(backupDir);
             String ts = LocalDateTime.now().format(BACKUP_TIMESTAMP);
             if (Files.exists(channelsPath)) {
@@ -389,7 +663,7 @@ public class ModServerChannels {
                         catch (IOException e) { return 0; }
                     }))
                     .collect(Collectors.toList());
-            while (sorted.size() > BACKUP_KEEP_MAX) {
+            while (sorted.size() > cn.sarskin.ChatSphere.config.ModServerConfig.CONFIG.backupKeepMax.get()) {
                 Path oldest = sorted.remove(0);
                 Files.deleteIfExists(oldest);
                 LOGGER.info("Pruned old server backup: {}", oldest);
@@ -408,6 +682,24 @@ public class ModServerChannels {
         return list;
     }
 
+    private static List<VoiceRoom> readVoiceRooms(JsonObject obj) {
+        List<VoiceRoom> rooms = new ArrayList<>();
+        if (obj.has("voiceRooms")) {
+            JsonArray arr = obj.getAsJsonArray("voiceRooms");
+            for (var el : arr) {
+                JsonObject vrObj = el.getAsJsonObject();
+                String name = vrObj.get("name").getAsString();
+                List<String> members = new ArrayList<>();
+                if (vrObj.has("members")) {
+                    JsonArray mArr = vrObj.getAsJsonArray("members");
+                    for (var mEl : mArr) members.add(mEl.getAsString());
+                }
+                rooms.add(new VoiceRoom(name, members));
+            }
+        }
+        return rooms;
+    }
+
     private static void writeStringList(JsonObject obj, String key, List<String> list) {
         JsonArray arr = new JsonArray();
         for (String s : list) arr.add(s);
@@ -417,14 +709,20 @@ public class ModServerChannels {
     public record ChannelEntry(
             String id, String owner, boolean isPublic, String description, String displayName,
             List<String> admins, List<String> mutedPlayers, List<String> invitedPlayers,
-            List<String> members, String inviteCode
+            List<String> members, String inviteCode, boolean showInExplore,
+            List<VoiceRoom> voiceRooms
     ) {
         public ChannelEntry {
             if (inviteCode == null || inviteCode.isEmpty()) {
                 inviteCode = generateInviteCode();
             }
+            if (voiceRooms == null) {
+                voiceRooms = List.of();
+            }
         }
     }
+
+    public record VoiceRoom(String name, List<String> members) {}
 
     private static String generateInviteCode() {
         String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

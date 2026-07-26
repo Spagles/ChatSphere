@@ -29,6 +29,8 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
             buf.writeLong(m.timestamp());
             writeUtf(buf, m.conversationId());
             writeUtf(buf, m.conversationType());
+            writeUtf(buf, m.replyContent());
+            writeUtf(buf, m.replySender());
         }
     }
 
@@ -42,12 +44,15 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
             long timestamp = buf.readLong();
             String conversationId = readUtf(buf);
             String conversationType = readUtf(buf);
-            list.add(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType));
+            String replyContent = readUtf(buf);
+            String replySender = readUtf(buf);
+            list.add(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender));
         }
         return new ClientboundMessageSyncPayload(list);
     }
 
     private static void writeUtf(ByteBuf buf, String s) {
+        if (s == null) s = "";
         byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
         buf.writeInt(bytes.length);
         buf.writeBytes(bytes);
@@ -83,5 +88,6 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
     }
 
     public record StoredMessage(String senderName, UUID senderUuid, String content, long timestamp,
-                                String conversationId, String conversationType) {}
+                                String conversationId, String conversationType,
+                                String replyContent, String replySender) {}
 }

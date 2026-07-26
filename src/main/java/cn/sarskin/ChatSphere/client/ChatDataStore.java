@@ -10,18 +10,32 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import cn.sarskin.ChatSphere.client.voice.VoiceRoom;
 
 public class ChatDataStore {
     private static final Logger LOGGER = LoggerFactory.getLogger("ChatDataStore");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final String DATA_DIR_NAME = "chatsphere_data";
     private static final String DATA_FILE_NAME = "data.json";
     private static final String OLD_FILE_NAME = "chatsphere_data.json";
+    private static final ExecutorService IO_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "ChatSphere-IO");
+        t.setDaemon(true);
+        return t;
+    });
+    private static Path dataDir;
 
     private ChatDataStore() {}
 
+    public static void setDataDir(Path dir) {
+        dataDir = dir;
+    }
+
     public static Path getDataDir() {
-        return net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve(DATA_DIR_NAME);
+        return dataDir != null ? dataDir : net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve("chatsphere_data");
     }
 
     public static Path getDataPath() {
@@ -73,6 +87,10 @@ public class ChatDataStore {
         }
     }
 
+    public static CompletableFuture<SavedData> loadAsync() {
+        return CompletableFuture.supplyAsync(ChatDataStore::load, IO_EXECUTOR);
+    }
+
     public static void save(SavedData data) {
         Path path = getDataPath();
         try {
@@ -83,6 +101,10 @@ public class ChatDataStore {
         } catch (Exception e) {
             LOGGER.error("Failed to save chat data", e);
         }
+    }
+
+    public static CompletableFuture<Void> saveAsync(SavedData data) {
+        return CompletableFuture.runAsync(() -> save(data), IO_EXECUTOR);
     }
 
     private static JsonObject toJson(SavedData data) {
@@ -99,6 +121,9 @@ public class ChatDataStore {
             m.addProperty("conversationId", sm.conversationId);
             m.addProperty("conversationType", sm.conversationType);
             m.addProperty("isOwn", sm.isOwn);
+            if (sm.duplicateCount > 1) m.addProperty("duplicateCount", sm.duplicateCount);
+            if (sm.replyContent != null) m.addProperty("replyContent", sm.replyContent);
+            if (sm.replySender != null) m.addProperty("replySender", sm.replySender);
             messagesArr.add(m);
         }
         root.add("messages", messagesArr);
@@ -136,6 +161,21 @@ public class ChatDataStore {
             JsonArray invitesArr = new JsonArray();
             for (String i : cfg.invitedPlayers) invitesArr.add(i);
             c.add("invitedPlayers", invitesArr);
+            JsonObject namesObj = new JsonObject();
+            for (Map.Entry<String, String> ne : cfg.playerNames.entrySet()) {
+                namesObj.addProperty(ne.getKey(), ne.getValue());
+            }
+            c.add("playerNames", namesObj);
+            JsonArray vrArr = new JsonArray();
+            for (VoiceRoom vr : cfg.voiceRooms) {
+                JsonObject vrObj = new JsonObject();
+                vrObj.addProperty("name", vr.name);
+                JsonArray mArr = new JsonArray();
+                for (String m : vr.members) mArr.add(m);
+                vrObj.add("members", mArr);
+                vrArr.add(vrObj);
+            }
+            c.add("voiceRooms", vrArr);
             configsObj.add(e.getKey(), c);
         }
         root.add("channelConfigs", configsObj);
@@ -148,6 +188,13 @@ public class ChatDataStore {
         }
         root.add("commandHistory", cmdHistObj);
 
+        if (data.savedInput != null && !data.savedInput.isEmpty())
+            root.addProperty("savedInput", data.savedInput);
+
+        JsonArray blockedArr = new JsonArray();
+        for (String uuid : data.blockedPlayers) blockedArr.add(uuid);
+        root.add("blockedPlayers", blockedArr);
+
         return root;
     }
 
@@ -158,6 +205,9 @@ public class ChatDataStore {
             JsonArray arr = obj.getAsJsonArray("messages");
             for (JsonElement el : arr) {
                 JsonObject m = el.getAsJsonObject();
+                int dup = m.has("duplicateCount") ? m.get("duplicateCount").getAsInt() : 1;
+                String replyContent = m.has("replyContent") ? m.get("replyContent").getAsString() : null;
+                String replySender = m.has("replySender") ? m.get("replySender").getAsString() : null;
                 SavedMessage sm = new SavedMessage(
                         m.get("senderName").getAsString(),
                         UUID.fromString(m.get("senderUuid").getAsString()),
@@ -165,7 +215,8 @@ public class ChatDataStore {
                         m.get("timestamp").getAsLong(),
                         m.get("conversationId").getAsString(),
                         m.get("conversationType").getAsString(),
-                        m.get("isOwn").getAsBoolean()
+                        m.get("isOwn").getAsBoolean(),
+                        dup, replyContent, replySender
                 );
                 data.messages.add(sm);
             }
@@ -211,6 +262,25 @@ public class ChatDataStore {
                     JsonArray i = c.getAsJsonArray("invitedPlayers");
                     for (JsonElement el : i) cfg.invitedPlayers.add(el.getAsString());
                 }
+                if (c.has("playerNames")) {
+                    JsonObject namesObj = c.getAsJsonObject("playerNames");
+                    for (Map.Entry<String, JsonElement> ne : namesObj.entrySet()) {
+                        cfg.playerNames.put(ne.getKey(), ne.getValue().getAsString());
+                    }
+                }
+                if (c.has("voiceRooms")) {
+                    JsonArray vrArr = c.getAsJsonArray("voiceRooms");
+                    for (JsonElement vrEl : vrArr) {
+                        JsonObject vrObj = vrEl.getAsJsonObject();
+                        VoiceRoom vr = new VoiceRoom();
+                        vr.name = vrObj.get("name").getAsString();
+                        if (vrObj.has("members")) {
+                            JsonArray mArr = vrObj.getAsJsonArray("members");
+                            for (JsonElement mEl : mArr) vr.members.add(mEl.getAsString());
+                        }
+                        cfg.voiceRooms.add(vr);
+                    }
+                }
                 data.channelConfigs.put(e.getKey(), cfg);
             }
         }
@@ -225,6 +295,14 @@ public class ChatDataStore {
             }
         }
 
+        if (obj.has("savedInput"))
+            data.savedInput = obj.get("savedInput").getAsString();
+
+        if (obj.has("blockedPlayers")) {
+            JsonArray arr = obj.getAsJsonArray("blockedPlayers");
+            for (JsonElement el : arr) data.blockedPlayers.add(el.getAsString());
+        }
+
         return data;
     }
 
@@ -234,12 +312,20 @@ public class ChatDataStore {
         public final Map<String, String> privateDisplayNames = new LinkedHashMap<>();
         public final Map<String, ChannelConfig> channelConfigs = new LinkedHashMap<>();
         public final Map<String, List<String>> commandHistory = new LinkedHashMap<>();
+        public String savedInput;
+        public final List<String> blockedPlayers = new ArrayList<>();
     }
 
     public record SavedMessage(
             String senderName, UUID senderUuid, String content,
-            long timestamp, String conversationId, String conversationType, boolean isOwn
-    ) {}
+            long timestamp, String conversationId, String conversationType, boolean isOwn,
+            int duplicateCount, String replyContent, String replySender
+    ) {
+        public SavedMessage(String senderName, UUID senderUuid, String content,
+                            long timestamp, String conversationId, String conversationType, boolean isOwn) {
+            this(senderName, senderUuid, content, timestamp, conversationId, conversationType, isOwn, 1, null, null);
+        }
+    }
 
     public static class ChannelConfig {
         public boolean isPublic = true;
@@ -251,5 +337,8 @@ public class ChatDataStore {
         public final List<String> members = new ArrayList<>();
         public final List<String> mutedPlayers = new ArrayList<>();
         public final List<String> invitedPlayers = new ArrayList<>();
+        public final Map<String, String> playerNames = new HashMap<>();
+        public boolean showInExplore = true;
+        public final List<cn.sarskin.ChatSphere.client.voice.VoiceRoom> voiceRooms = new ArrayList<>();
     }
 }

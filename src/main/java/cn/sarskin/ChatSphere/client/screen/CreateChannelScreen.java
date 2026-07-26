@@ -13,13 +13,16 @@ import java.util.List;
 import java.util.UUID;
 
 public class CreateChannelScreen extends Screen {
-    private static final int POPUP_WIDTH = 200;
-    private static final int POPUP_HEIGHT = 80;
+    private static final int POPUP_WIDTH = 280;
+    private static final int POPUP_HEIGHT = 170;
 
     private final Screen parent;
     private EditBox nameInput;
+    private EditBox descInput;
     private StyledButton confirmBtn;
     private StyledButton cancelBtn;
+    private StyledButton publicToggle;
+    private boolean isPublic = true;
 
     public CreateChannelScreen(Screen parent) {
         super(Component.translatable("screen.chatsphere.create_channel.title"));
@@ -30,8 +33,10 @@ public class CreateChannelScreen extends Screen {
     protected void init() {
         int popupX = (this.width - POPUP_WIDTH) / 2;
         int popupY = (this.height - POPUP_HEIGHT) / 2;
+        int fieldW = POPUP_WIDTH - 20;
+        int fieldX = popupX + 10;
 
-        this.nameInput = new EditBox(this.font, popupX + 10, popupY + 20, POPUP_WIDTH - 20, 16,
+        this.nameInput = new EditBox(this.font, fieldX, popupY + 22, fieldW, 16,
                 Component.translatable("screen.chatsphere.create_channel.input_label"));
         this.nameInput.setMaxLength(32);
         this.nameInput.setBordered(true);
@@ -39,15 +44,48 @@ public class CreateChannelScreen extends Screen {
         this.addWidget(this.nameInput);
         this.setInitialFocus(this.nameInput);
 
+        this.descInput = new EditBox(this.font, fieldX, popupY + 48, fieldW, 16,
+                Component.translatable("screen.chatsphere.channel_config.description"));
+        this.descInput.setMaxLength(64);
+        this.descInput.setBordered(true);
+        this.descInput.setHint(Component.translatable("screen.chatsphere.channel_config.description_hint"));
+        this.addWidget(this.descInput);
+
+        int toggleBtnW = 100;
+        this.publicToggle = this.addRenderableWidget(StyledButton.styledBuilder(
+                buildPublicLabel(),
+                btn -> {
+                    isPublic = !isPublic;
+                    btn.setMessage(buildPublicLabel());
+                    ((StyledButton) btn).setStyle(isPublic ? StyledButton.Style.TOGGLE_ON : StyledButton.Style.TOGGLE_OFF);
+                }
+        ).bounds(popupX + POPUP_WIDTH - 10 - toggleBtnW, popupY + 74, toggleBtnW, 20).style(
+                StyledButton.Style.TOGGLE_ON
+        ).tooltip(
+                Component.translatable("screen.chatsphere.create_channel.tip_toggle_public")
+        ).build());
+
+        int btnW = 90;
         this.confirmBtn = this.addRenderableWidget(StyledButton.styledBuilder(
                 Component.translatable("screen.chatsphere.create_channel.confirm"),
                 btn -> confirm()
-        ).bounds(popupX + 10, popupY + 50, 80, 20).style(StyledButton.Style.CONFIRM).build());
+        ).bounds(popupX + 10, popupY + POPUP_HEIGHT - 30, btnW, 20).style(StyledButton.Style.CONFIRM).tooltip(
+                Component.translatable("screen.chatsphere.create_channel.tip_confirm")
+        ).build());
 
         this.cancelBtn = this.addRenderableWidget(StyledButton.styledBuilder(
                 Component.translatable("screen.chatsphere.create_channel.cancel"),
                 btn -> cancel()
-        ).bounds(popupX + POPUP_WIDTH - 10 - 80, popupY + 50, 80, 20).style(StyledButton.Style.CANCEL).build());
+        ).bounds(popupX + POPUP_WIDTH - 10 - btnW, popupY + POPUP_HEIGHT - 30, btnW, 20).style(StyledButton.Style.CANCEL).tooltip(
+                Component.translatable("screen.chatsphere.create_channel.tip_cancel")
+        ).build());
+    }
+
+    private Component buildPublicLabel() {
+        if (isPublic) {
+            return Component.translatable("screen.chatsphere.channel_config.enabled");
+        }
+        return Component.translatable("screen.chatsphere.channel_config.disabled");
     }
 
     @Override
@@ -57,15 +95,25 @@ public class CreateChannelScreen extends Screen {
         int popupX = (this.width - POPUP_WIDTH) / 2;
         int popupY = (this.height - POPUP_HEIGHT) / 2;
 
-        guiGraphics.fill(popupX, popupY, popupX + POPUP_WIDTH, popupY + POPUP_HEIGHT, 0xCC222244);
-        guiGraphics.renderOutline(popupX, popupY, POPUP_WIDTH, POPUP_HEIGHT, 0xFF6666AA);
+        guiGraphics.fill(popupX, popupY, popupX + POPUP_WIDTH, popupY + POPUP_HEIGHT, 0xCC1A1A2E);
+        guiGraphics.renderOutline(popupX, popupY, POPUP_WIDTH, POPUP_HEIGHT, 0xFF4444AA);
 
         String title = this.title.getString();
         guiGraphics.drawString(this.font, title,
                 popupX + (POPUP_WIDTH - this.font.width(title)) / 2,
                 popupY + 5, 0xFFFFFFFF, false);
 
+        Component nameLabel = Component.translatable("screen.chatsphere.create_channel.input_label");
+        guiGraphics.drawString(this.font, nameLabel, popupX + 10, popupY + 22 - 10, 0xFFAAAAAA, false);
+
+        Component descLabel = Component.translatable("screen.chatsphere.channel_config.description");
+        guiGraphics.drawString(this.font, descLabel, popupX + 10, popupY + 48 - 10, 0xFFAAAAAA, false);
+
+        Component publicLabel = Component.translatable("screen.chatsphere.channel_config.public_label");
+        guiGraphics.drawString(this.font, publicLabel, popupX + 10, popupY + 78, 0xFFAAAAAA, false);
+
         this.nameInput.render(guiGraphics, mouseX, mouseY, partialTick);
+        this.descInput.render(guiGraphics, mouseX, mouseY, partialTick);
 
         for (Renderable renderable : this.renderables) {
             renderable.render(guiGraphics, mouseX, mouseY, partialTick);
@@ -75,8 +123,10 @@ public class CreateChannelScreen extends Screen {
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         this.nameInput.mouseClicked(mouseX, mouseY, button);
+        this.descInput.mouseClicked(mouseX, mouseY, button);
         if (this.confirmBtn.mouseClicked(mouseX, mouseY, button)) return true;
         if (this.cancelBtn.mouseClicked(mouseX, mouseY, button)) return true;
+        if (this.publicToggle.mouseClicked(mouseX, mouseY, button)) return true;
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
@@ -100,14 +150,15 @@ public class CreateChannelScreen extends Screen {
             UUID ownerUuid = this.minecraft != null && this.minecraft.player != null
                     ? this.minecraft.player.getUUID() : null;
             String channelId = name.startsWith("#") ? name : "#" + name;
+            String description = this.descInput.getValue().trim();
             if (ownerUuid != null && history.isServerConnected() && this.minecraft != null
                     && this.minecraft.getConnection() != null) {
                 var conn = this.minecraft.getConnection().getConnection();
                 conn.send(new net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(
                         new ServerboundChannelActionPayload(
                                 ServerboundChannelActionPayload.Action.CREATE,
-                                channelId, ownerUuid, true, "", "",
-                                List.of(), List.of(), List.of(), "")));
+                                channelId, ownerUuid, isPublic, description, "",
+                                List.of(), List.of(), List.of(), "", true, "", "")));
             } else {
                 history.addChannel(name, ownerUuid);
             }
