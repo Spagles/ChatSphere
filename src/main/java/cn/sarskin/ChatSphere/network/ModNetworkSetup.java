@@ -55,6 +55,11 @@ public class ModNetworkSetup {
                 ClientboundPublicChannelListPayload.STREAM_CODEC,
                 ClientboundPublicChannelListPayload::handle
         );
+        registrar.playToClient(
+                ClientboundBridgeInfoPayload.TYPE,
+                ClientboundBridgeInfoPayload.STREAM_CODEC,
+                ClientboundBridgeInfoPayload::handle
+        );
         registrar.playToServer(
                 ServerboundConfigUpdatePayload.TYPE,
                 ServerboundConfigUpdatePayload.STREAM_CODEC,

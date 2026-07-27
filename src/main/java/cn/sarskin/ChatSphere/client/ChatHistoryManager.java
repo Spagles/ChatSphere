@@ -48,6 +48,10 @@ public class ChatHistoryManager {
     private boolean serverConnected;
     private volatile boolean saveDirty;
     private ScheduledFuture<?> pendingSave;
+    private int bridgeProtocolVersion;
+    private String bridgeVersion;
+    private int bridgeCapabilities;
+    private Set<String> bridgeOnlinePlayers = Set.of();
     private static final ScheduledExecutorService SAVE_TIMER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "ChatSphere-SaveTimer");
         t.setDaemon(true);
@@ -708,6 +712,19 @@ public class ChatHistoryManager {
         this.publicChannels = list;
         this.publicChannelsDirty = false;
     }
+
+    public void setBridgeInfo(ClientboundBridgeInfoPayload payload) {
+        this.bridgeProtocolVersion = payload.protocolVersion();
+        this.bridgeVersion = payload.bridgeVersion();
+        this.bridgeCapabilities = payload.capabilities();
+        this.bridgeOnlinePlayers = payload.onlinePlayers() != null ? payload.onlinePlayers() : Set.of();
+    }
+
+    public int getBridgeProtocolVersion() { return bridgeProtocolVersion; }
+    public String getBridgeVersion() { return bridgeVersion; }
+    public int getBridgeCapabilities() { return bridgeCapabilities; }
+    public Set<String> getBridgeOnlinePlayers() { return bridgeOnlinePlayers; }
+    public boolean hasBridgeCapability(int cap) { return (bridgeCapabilities & cap) != 0; }
 
     public boolean isPublicChannelsDirty() {
         return publicChannelsDirty;
