@@ -124,6 +124,7 @@ public class ChatDataStore {
             if (sm.duplicateCount > 1) m.addProperty("duplicateCount", sm.duplicateCount);
             if (sm.replyContent != null) m.addProperty("replyContent", sm.replyContent);
             if (sm.replySender != null) m.addProperty("replySender", sm.replySender);
+            if (sm.itemNbt != null && !sm.itemNbt.isEmpty()) m.addProperty("itemNbt", sm.itemNbt);
             messagesArr.add(m);
         }
         root.add("messages", messagesArr);
@@ -208,6 +209,7 @@ public class ChatDataStore {
                 int dup = m.has("duplicateCount") ? m.get("duplicateCount").getAsInt() : 1;
                 String replyContent = m.has("replyContent") ? m.get("replyContent").getAsString() : null;
                 String replySender = m.has("replySender") ? m.get("replySender").getAsString() : null;
+                String itemNbt = m.has("itemNbt") ? m.get("itemNbt").getAsString() : null;
                 SavedMessage sm = new SavedMessage(
                         m.get("senderName").getAsString(),
                         UUID.fromString(m.get("senderUuid").getAsString()),
@@ -216,7 +218,7 @@ public class ChatDataStore {
                         m.get("conversationId").getAsString(),
                         m.get("conversationType").getAsString(),
                         m.get("isOwn").getAsBoolean(),
-                        dup, replyContent, replySender
+                        dup, replyContent, replySender, itemNbt
                 );
                 data.messages.add(sm);
             }
@@ -319,11 +321,12 @@ public class ChatDataStore {
     public record SavedMessage(
             String senderName, UUID senderUuid, String content,
             long timestamp, String conversationId, String conversationType, boolean isOwn,
-            int duplicateCount, String replyContent, String replySender
+            int duplicateCount, String replyContent, String replySender,
+            String itemNbt
     ) {
         public SavedMessage(String senderName, UUID senderUuid, String content,
                             long timestamp, String conversationId, String conversationType, boolean isOwn) {
-            this(senderName, senderUuid, content, timestamp, conversationId, conversationType, isOwn, 1, null, null);
+            this(senderName, senderUuid, content, timestamp, conversationId, conversationType, isOwn, 1, null, null, null);
         }
     }
 

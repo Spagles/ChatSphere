@@ -30,6 +30,7 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
         writeUtf(buf, m.conversationType());
         writeUtf(buf, m.replyContent());
         writeUtf(buf, m.replySender());
+        writeUtf(buf, m.itemNbt());
     }
 
     private static ClientboundChatPayload read(ByteBuf buf) {
@@ -41,7 +42,8 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
         String conversationType = readUtf(buf);
         String replyContent = readUtf(buf);
         String replySender = readUtf(buf);
-        return new ClientboundChatPayload(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender));
+        String itemNbt = readUtf(buf);
+        return new ClientboundChatPayload(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender, itemNbt));
     }
 
     @Override
@@ -86,7 +88,8 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         ctype,
                         isOwn,
                         sm.replyContent(),
-                        sm.replySender());
+                        sm.replySender(),
+                        sm.itemNbt());
             } else {
                 history.addMessage(
                         Component.literal(sm.senderName()),
@@ -96,7 +99,8 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
                         ctype,
                         isOwn,
                         sm.replyContent(),
-                        sm.replySender());
+                        sm.replySender(),
+                        sm.itemNbt());
             }
         });
     }
@@ -126,5 +130,6 @@ public record ClientboundChatPayload(StoredMessage message) implements CustomPac
 
     public record StoredMessage(String senderName, UUID senderUuid, String content, long timestamp,
                                 String conversationId, String conversationType,
-                                String replyContent, String replySender) {}
+                                String replyContent, String replySender,
+                                String itemNbt) {}
 }

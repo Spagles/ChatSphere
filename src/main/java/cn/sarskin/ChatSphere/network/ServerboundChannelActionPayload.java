@@ -30,7 +30,8 @@ public record ServerboundChannelActionPayload(
         String inviteCode,
         boolean showInExplore,
         String replyContent,
-        String replySender
+        String replySender,
+        String itemNbt
 ) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<ServerboundChannelActionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MODID, "channel_action"));
@@ -52,6 +53,7 @@ public record ServerboundChannelActionPayload(
         buf.writeBoolean(p.showInExplore);
         writeUtf(buf, p.replyContent);
         writeUtf(buf, p.replySender);
+        writeUtf(buf, p.itemNbt);
     }
 
     private static ServerboundChannelActionPayload read(ByteBuf buf) {
@@ -68,7 +70,8 @@ public record ServerboundChannelActionPayload(
         boolean showInExplore = buf.readBoolean();
         String replyContent = readUtf(buf);
         String replySender = readUtf(buf);
-        return new ServerboundChannelActionPayload(action, channelId, owner, isPublic, description, displayName, admins, muted, invited, inviteCode, showInExplore, replyContent, replySender);
+        String itemNbt = readUtf(buf);
+        return new ServerboundChannelActionPayload(action, channelId, owner, isPublic, description, displayName, admins, muted, invited, inviteCode, showInExplore, replyContent, replySender, itemNbt);
     }
 
     private static void writeUtf(ByteBuf buf, String s) {
@@ -174,10 +177,10 @@ public record ServerboundChannelActionPayload(
                                 } catch (java.util.regex.PatternSyntaxException ignored) {}
                             }
                         }
-                        msc.addChatMessage(senderName, ownerUuid, description, channelId, convType, replyContent, replySender);
+                        msc.addChatMessage(senderName, ownerUuid, description, channelId, convType, replyContent, replySender, itemNbt);
                         long now = System.currentTimeMillis();
                         ClientboundChatPayload relay = new ClientboundChatPayload(
-                                new ClientboundChatPayload.StoredMessage(senderName, ownerUuid, description, now, channelId, convType, replyContent, replySender));
+                                new ClientboundChatPayload.StoredMessage(senderName, ownerUuid, description, now, channelId, convType, replyContent, replySender, itemNbt));
 
                         if (targetUuid != null) {
                             ServerPlayer target = server.getPlayerList().getPlayer(targetUuid);

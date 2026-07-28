@@ -7,6 +7,7 @@ import cn.sarskin.ChatSphere.client.ChatMessageData;
 import cn.sarskin.ChatSphere.client.PlayerSkinCache;
 import cn.sarskin.ChatSphere.config.ModClientConfig;
 import cn.sarskin.ChatSphere.config.ModServerConfig;
+import cn.sarskin.ChatSphere.util.ItemSerialization;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
@@ -20,6 +21,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.item.ItemStack;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -73,15 +75,20 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
             if (msg.conversationType() == ChatMessageData.ConversationType.COMMAND) continue;
             if (now - msg.timestamp() > MESSAGE_DISPLAY_TIME) continue;
 
-            Component bubbleText = buildBubbleText(msg);
+            boolean hasItem = msg.itemNbt() != null && !msg.itemNbt().isEmpty();
+            ItemStack itemStack = hasItem ? ItemSerialization.deserialize(msg.itemNbt()) : ItemStack.EMPTY;
+            boolean itemRendered = hasItem && !itemStack.isEmpty();
+
+            Component bubbleText = buildBubbleText(msg, itemRendered);
             int textWidth = mc.font.width(bubbleText);
-            int bubbleWidth = textWidth + BUBBLE_PADDING * 2 + (ModClientConfig.CONFIG.showAvatar.get() ? AVATAR_SIZE + 4 : 0);
-            int bubbleHeight = 12 + BUBBLE_PADDING * 2;
+            int iconExtra = itemRendered ? 18 : 0;
+            int bubbleWidth = textWidth + BUBBLE_PADDING * 2 + (ModClientConfig.CONFIG.showAvatar.get() ? AVATAR_SIZE + 4 : 0) + iconExtra;
+            int bubbleHeight = (itemRendered ? 20 : 12) + BUBBLE_PADDING * 2;
 
             int bubbleY = chatStartY - (shown + 1) * (bubbleHeight + BUBBLE_MARGIN);
             if (bubbleY < 0) break;
 
-            drawBubble(guiGraphics, mc, msg, bubbleText, bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+            drawBubble(guiGraphics, mc, msg, bubbleText, itemRendered, itemStack, bubbleX, bubbleY, bubbleWidth, bubbleHeight);
             shown++;
         }
 
@@ -106,7 +113,7 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
         g.drawString(mc.font, hintText, hintX, hintY, (alpha << 24) | 0xFFFFFF55, false);
     }
 
-    private Component buildBubbleText(ChatMessageData msg) {
+    private Component buildBubbleText(ChatMessageData msg, boolean itemRendered) {
         MutableComponent text = Component.literal("");
         boolean showName = ModClientConfig.CONFIG.showSenderName.get();
         boolean showTime = ModClientConfig.CONFIG.showTimestamp.get();
@@ -115,7 +122,9 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
             text.append(msg.senderName().copy().withStyle(ChatFormatting.AQUA));
             text.append(" ");
         }
-        text.append(msg.renderedContent());
+        if (!itemRendered) {
+            text.append(msg.renderedContent());
+        }
         if (showTime) {
             text.append("  ").append(Component.literal(ChatHistoryManager.formatTimestamp(msg.timestamp())).withStyle(ChatFormatting.GRAY));
         }
@@ -127,7 +136,8 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
     }
 
     private void drawBubble(GuiGraphics guiGraphics, Minecraft mc, ChatMessageData msg,
-                            Component bubbleText, int x, int y, int width, int height) {
+                            Component bubbleText, boolean itemRendered, ItemStack itemStack,
+                            int x, int y, int width, int height) {
         boolean isDark = ModClientConfig.CONFIG.themeDark.get();
         int color;
         if (msg.isOwn()) {
@@ -146,9 +156,18 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
             textX = avatarX + AVATAR_SIZE + 4;
         }
 
-        int textY = y + (height - 9) / 2;
-        int textColor = msg.isOwn() ? 0xFFF0F0F0 : 0xFF1A1A1A;
-        guiGraphics.drawString(mc.font, bubbleText, textX, textY, textColor, false);
+        if (itemRendered && !itemStack.isEmpty()) {
+            int iconY = y + (height - 16) / 2;
+            guiGraphics.renderItem(itemStack, textX, iconY);
+            int nameX = textX + 18;
+            int nameY = y + (height - 9) / 2;
+            int textColor = msg.isOwn() ? 0xFFF0F0F0 : 0xFF1A1A1A;
+            guiGraphics.drawString(mc.font, bubbleText, nameX, nameY, textColor, false);
+        } else {
+            int textY = y + (height - 9) / 2;
+            int textColor = msg.isOwn() ? 0xFFF0F0F0 : 0xFF1A1A1A;
+            guiGraphics.drawString(mc.font, bubbleText, textX, textY, textColor, false);
+        }
     }
 
     private void drawAvatar(GuiGraphics guiGraphics, Minecraft mc, ChatMessageData msg, int x, int y) {

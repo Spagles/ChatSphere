@@ -158,7 +158,7 @@ public class CreateChannelScreen extends Screen {
                         new ServerboundChannelActionPayload(
                                 ServerboundChannelActionPayload.Action.CREATE,
                                 channelId, ownerUuid, isPublic, description, "",
-                                List.of(), List.of(), List.of(), "", true, "", "")));
+                                List.<String>of(), List.<String>of(), List.<String>of(), "", true, "", "", "")));
             } else {
                 history.addChannel(name, ownerUuid);
             }

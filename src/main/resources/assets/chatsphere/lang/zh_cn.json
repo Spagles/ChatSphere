@@ -270,5 +270,6 @@
 
   "screen.chatsphere.blocklist.title": "已屏蔽的玩家",
   "screen.chatsphere.blocklist.empty": "暂无已屏蔽的玩家。右键消息选择「屏蔽消息」可屏蔽玩家。",
-  "screen.chatsphere.tip.blocklist": "管理已屏蔽的玩家"
+  "screen.chatsphere.tip.blocklist": "管理已屏蔽的玩家",
+  "screen.chatsphere.tip.pick_item": "从背包中选择一个物品分享"
 }

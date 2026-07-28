@@ -273,5 +273,6 @@
 
   "screen.chatsphere.blocklist.title": "Blocked Players",
   "screen.chatsphere.blocklist.empty": "No blocked players. Right-click a message and select \"Block Messages\" to block a player.",
-  "screen.chatsphere.tip.blocklist": "Manage blocked players"
+  "screen.chatsphere.tip.blocklist": "Manage blocked players",
+  "screen.chatsphere.tip.pick_item": "Pick an item from inventory to share"
 }

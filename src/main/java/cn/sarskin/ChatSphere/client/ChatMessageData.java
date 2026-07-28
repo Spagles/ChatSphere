@@ -18,6 +18,7 @@ public class ChatMessageData {
     private int duplicateCount;
     private String replyContent;
     private String replySender;
+    private String itemNbt;
 
     public ChatMessageData(Component senderName, UUID senderUuid, Component content,
                            long timestamp, String conversationId,
@@ -41,7 +42,13 @@ public class ChatMessageData {
         copy.duplicateCount = this.duplicateCount;
         copy.replyContent = replyContent;
         copy.replySender = replySender;
+        copy.itemNbt = this.itemNbt;
         return copy;
+    }
+
+    public ChatMessageData withItemNbt(String itemNbt) {
+        this.itemNbt = itemNbt;
+        return this;
     }
 
     public Component senderName() { return senderName; }
@@ -56,6 +63,8 @@ public class ChatMessageData {
     public void setDuplicateCount(int count) { this.duplicateCount = count; }
     public String replyContent() { return replyContent; }
     public String replySender() { return replySender; }
+    public String itemNbt() { return itemNbt; }
+    public void setItemNbt(String nbt) { this.itemNbt = nbt; }
 
     public enum ConversationType {
         CHANNEL, PRIVATE, COMMAND

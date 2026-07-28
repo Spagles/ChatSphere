@@ -31,6 +31,7 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
             writeUtf(buf, m.conversationType());
             writeUtf(buf, m.replyContent());
             writeUtf(buf, m.replySender());
+            writeUtf(buf, m.itemNbt());
         }
     }
 
@@ -46,7 +47,8 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
             String conversationType = readUtf(buf);
             String replyContent = readUtf(buf);
             String replySender = readUtf(buf);
-            list.add(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender));
+            String itemNbt = readUtf(buf);
+            list.add(new StoredMessage(senderName, senderUuid, content, timestamp, conversationId, conversationType, replyContent, replySender, itemNbt));
         }
         return new ClientboundMessageSyncPayload(list);
     }
@@ -89,5 +91,6 @@ public record ClientboundMessageSyncPayload(List<StoredMessage> messages) implem
 
     public record StoredMessage(String senderName, UUID senderUuid, String content, long timestamp,
                                 String conversationId, String conversationType,
-                                String replyContent, String replySender) {}
+                                String replyContent, String replySender,
+                                String itemNbt) {}
 }

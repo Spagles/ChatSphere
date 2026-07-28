@@ -64,7 +64,7 @@ public class ConfirmDeleteChannelScreen extends Screen {
                 new ServerboundChannelActionPayload(
                     ServerboundChannelActionPayload.Action.REMOVE_CHANNEL,
                     channelId, playerUuid, true, "", "",
-                    List.of(), List.of(), List.of(), "", true, "", "")));
+                    List.<String>of(), List.<String>of(), List.<String>of(), "", true, "", "", "")));
         }
     }
 
@@ -77,7 +77,7 @@ public class ConfirmDeleteChannelScreen extends Screen {
                 new ServerboundChannelActionPayload(
                     ServerboundChannelActionPayload.Action.LEAVE_CHANNEL,
                     channelId, playerUuid, true, "", "",
-                    List.of(), List.of(), List.of(), "", true, "", "")));
+                    List.<String>of(), List.<String>of(), List.<String>of(), "", true, "", "", "")));
         }
     }
 

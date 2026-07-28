@@ -210,12 +210,13 @@ public class ModServerChannels {
 
     public void addChatMessage(String senderName, UUID senderUuid, String content,
                                  String conversationId, String conversationType,
-                                 String replyContent, String replySender) {
+                                 String replyContent, String replySender,
+                                 String itemNbt) {
         if (senderUuid != null && senderName != null && !senderName.isEmpty()) {
             learnPlayerName(senderUuid.toString(), senderName);
         }
         StoredMessage msg = new StoredMessage(senderName, senderUuid, content, System.currentTimeMillis(),
-                conversationId, conversationType, replyContent, replySender);
+                conversationId, conversationType, replyContent, replySender, itemNbt);
         synchronized (messageHistory) {
             messageHistory.add(msg);
             if (messageHistory.size() > MAX_MESSAGE_HISTORY) {
@@ -430,7 +431,7 @@ public class ModServerChannels {
     public void addCommandMessage(String senderName, UUID senderUuid, String commandText) {
         addChatMessage(senderName, senderUuid, commandText,
                 "__commands__",
-                "COMMAND", "", "");
+                "COMMAND", "", "", "");
     }
 
     public List<StoredMessage> getRecentMessages(int count) {
@@ -538,7 +539,8 @@ public class ModServerChannels {
                             m.has("conversationId") ? m.get("conversationId").getAsString() : DEFAULT_CHANNEL_ID,
                             m.has("conversationType") ? m.get("conversationType").getAsString() : "CHANNEL",
                             m.has("replyContent") ? m.get("replyContent").getAsString() : "",
-                            m.has("replySender") ? m.get("replySender").getAsString() : ""
+                            m.has("replySender") ? m.get("replySender").getAsString() : "",
+                            m.has("itemNbt") ? m.get("itemNbt").getAsString() : ""
                     );
                     messageHistory.add(sm);
                 }
@@ -566,6 +568,9 @@ public class ModServerChannels {
                     if (m.replyContent() != null && !m.replyContent().isEmpty()) {
                         obj.addProperty("replyContent", m.replyContent());
                         obj.addProperty("replySender", m.replySender());
+                    }
+                    if (m.itemNbt() != null && !m.itemNbt().isEmpty()) {
+                        obj.addProperty("itemNbt", m.itemNbt());
                     }
                     arr.add(obj);
                 }

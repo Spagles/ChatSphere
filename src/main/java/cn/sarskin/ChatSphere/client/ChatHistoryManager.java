@@ -4,6 +4,7 @@ import cn.sarskin.ChatSphere.ModMain;
 import cn.sarskin.ChatSphere.client.PlayerSkinCache;
 import cn.sarskin.ChatSphere.config.ModClientConfig;
 import cn.sarskin.ChatSphere.config.ModServerConfig;
+import cn.sarskin.ChatSphere.network.ClientboundBridgeInfoPayload;
 import cn.sarskin.ChatSphere.network.ClientboundMessageSyncPayload;
 import cn.sarskin.ChatSphere.network.ClientboundPublicChannelListPayload;
 import cn.sarskin.ChatSphere.network.ServerboundChannelActionPayload;
@@ -81,12 +82,19 @@ public class ChatHistoryManager {
 
     public void addMessage(Component senderName, UUID senderUuid, Component content,
                            String conversationId, ChatMessageData.ConversationType type, boolean isOwn) {
-        addMessage(senderName, senderUuid, content, conversationId, type, isOwn, null, null);
+        addMessage(senderName, senderUuid, content, conversationId, type, isOwn, null, null, null);
     }
 
     public void addMessage(Component senderName, UUID senderUuid, Component content,
                            String conversationId, ChatMessageData.ConversationType type, boolean isOwn,
                            String replyContent, String replySender) {
+        addMessage(senderName, senderUuid, content, conversationId, type, isOwn, replyContent, replySender, null);
+    }
+
+    public void addMessage(Component senderName, UUID senderUuid, Component content,
+                           String conversationId, ChatMessageData.ConversationType type, boolean isOwn,
+                           String replyContent, String replySender,
+                           String itemNbt) {
         String contentStr = content.getString();
         synchronized (messages) {
             if (ModServerConfig.CONFIG.antiSpam.get() && !messages.isEmpty()) {
@@ -101,7 +109,8 @@ public class ChatHistoryManager {
                 if (last != null && last.senderName().getString().equals(senderName.getString())
                         && last.content().getString().equals(contentStr)
                         && Objects.equals(last.replyContent(), replyContent)
-                        && Objects.equals(last.replySender(), replySender)) {
+                        && Objects.equals(last.replySender(), replySender)
+                        && Objects.equals(last.itemNbt(), itemNbt)) {
                     last.setDuplicateCount(last.duplicateCount() + 1);
                     newMessageSinceLastCheck = true;
                     if (!isOwn) notifySoundForMessage(content, type);
@@ -113,12 +122,15 @@ public class ChatHistoryManager {
             }
             ChatMessageData msg = new ChatMessageData(senderName, senderUuid, content,
                     System.currentTimeMillis(), conversationId, type, isOwn);
-            if (replyContent != null && replySender != null) {
+            if (replyContent != null && !replyContent.isEmpty() && replySender != null && !replySender.isEmpty()) {
                 msg = msg.withReply(replyContent, replySender);
             } else if (isOwn && pendingReplyContent != null) {
                 msg = msg.withReply(pendingReplyContent, pendingReplySender);
                 pendingReplyContent = null;
                 pendingReplySender = null;
+            }
+            if (itemNbt != null && !itemNbt.isEmpty()) {
+                msg.setItemNbt(itemNbt);
             }
             messages.add(msg);
         }
@@ -385,7 +397,7 @@ public class ChatHistoryManager {
                                 new ArrayList<>(config.mutedPlayers),
                                 new ArrayList<>(config.invitedPlayers),
                                 config.inviteCode,
-                                config.showInExplore, "", "")));
+                                config.showInExplore, "", "", "")));
             }
         }
     }
@@ -602,6 +614,8 @@ public class ChatHistoryManager {
                 );
                 if (sm.replyContent() != null && sm.replySender() != null)
                     loaded = loaded.withReply(sm.replyContent(), sm.replySender());
+                if (sm.itemNbt() != null && !sm.itemNbt().isEmpty())
+                    loaded.setItemNbt(sm.itemNbt());
                 if (sm.duplicateCount() > 1)
                     loaded.setDuplicateCount(sm.duplicateCount());
                 messages.add(loaded);
@@ -649,7 +663,8 @@ public class ChatHistoryManager {
                         msg.isOwn(),
                         msg.duplicateCount(),
                         msg.replyContent(),
-                        msg.replySender()
+                        msg.replySender(),
+                        msg.itemNbt()
                 ));
             }
         }
@@ -851,6 +866,10 @@ public class ChatHistoryManager {
                 if (rc != null && !rc.isEmpty() && rs != null && !rs.isEmpty()) {
                     msgData = msgData.withReply(rc, rs);
                 }
+                String inbt = sm.itemNbt();
+                if (inbt != null && !inbt.isEmpty()) {
+                    msgData.setItemNbt(inbt);
+                }
                 messages.add(msgData);
             }
 
@@ -860,7 +879,8 @@ public class ChatHistoryManager {
             for (ChatMessageData msg : messages) {
                 ChatMessageData last = lastPerConv.get(msg.conversationId());
                 if (last != null && last.senderName().getString().equals(msg.senderName().getString())
-                        && last.content().getString().equals(msg.content().getString())) {
+                        && last.content().getString().equals(msg.content().getString())
+                        && Objects.equals(last.itemNbt(), msg.itemNbt())) {
                     last.setDuplicateCount(last.duplicateCount() + 1);
                 } else {
                     deduped.add(msg);
@@ -952,7 +972,7 @@ public class ChatHistoryManager {
         UUID playerUuid = mc.player.getUUID();
         var payload = new ServerboundChannelActionPayload(
                 action, channelId, playerUuid, true, roomName, "",
-                List.of(), List.of(), List.of(), "", true, "", ""
+                List.<String>of(), List.<String>of(), List.<String>of(), "", true, "", "", ""
         );
         mc.getConnection().send(new net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket(payload));
     }
