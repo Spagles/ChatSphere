@@ -1,3 +1,29 @@
+## 2.0.2
+
+### Added
+- Item NBT sharing — pick an item from inventory via the new item picker panel (item_chest icon); item NBT serialized and sent with chat messages; displayed as item icon + name in chat bubbles (ModChatScreen) and HUD overlay (ChatHudOverlay)
+- ItemSerialization utility for NBT-based item serialization/deserialization
+- ItemPickerPanel widget for inventory item selection
+
+### Changed
+- ChatMessageData, StoredMessage records now carry an optional `itemNbt` field through the entire pipeline: client send → server channel action → bridge relay → message sync → client display
+- Duplicate message detection now compares `itemNbt` to avoid merging different items
+- HUD bubble rendering adapts height and layout when an item is present
+- `addMessage()` skips reply bar rendering when `replyContent`/`replySender` is empty
+- ModChatScreen preserves `currentConversation` for PRIVATE conversations on window resize
+- Input placeholder uses dynamic `[slotNumber]` format when an item is selected
+- Version bumped to 2.0.2
+
+### Fixed
+- Empty replyContent no longer creates a visible reply bar in chat bubbles (fix applied during 2.0.2 development)
+- Window resize no longer resets current conversation from PRIVATE to default channel (fix applied during 2.0.2 development)
+- Sender now sees their own item-share message immediately (pendingItemNbt captured before sendChannelChatPacket — fix applied during 2.0.2 development)
+- Missing `bridge_info` payload registration causing handshake failure on proxy setups (fix applied during 2.0.2 development)
+- ServerboundConfigUpdatePayload registration accidentally dropped during development, causing ClassCastException on config save (fix applied during 2.0.2 development)
+
+### Notes
+All fixes listed above were identified and resolved during the 2.0.2 development cycle, not inherited from 2.0.1.
+
 ## 2.0.1
 
 ### Added
