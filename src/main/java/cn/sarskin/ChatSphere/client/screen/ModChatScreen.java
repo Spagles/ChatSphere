@@ -29,6 +29,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.*;
@@ -795,6 +796,53 @@ public class ModChatScreen extends Screen {
         }
 
         renderTooltips(guiGraphics, mouseX, mouseY, screenWidth, screenHeight);
+
+        // Command component hover tooltips (for clickable/hoverable text)
+        if (COMMAND_CONVERSATION_ID.equals(currentConversation)) {
+            synchronized (cmdHitBoxes) {
+                for (CommandHit hit : cmdHitBoxes) {
+                    if (mouseX >= hit.x && mouseX <= hit.x + hit.w && mouseY >= hit.y && mouseY <= hit.y + hit.h) {
+                        int relX = (int) mouseX - hit.x;
+                        Style style = minecraft.font.getSplitter().componentStyleAtWidth(hit.component, relX);
+                        if (style != null && style.getHoverEvent() != null) {
+                            var hoverEvent = style.getHoverEvent();
+                            var action = hoverEvent.getAction();
+                            Object val = hoverEvent.getValue(action);
+                            if (val instanceof Component tooltip) {
+                                String raw = tooltip.getString();
+                                if (raw.contains("\n")) {
+                                    List<Component> lines = new ArrayList<>();
+                                    MutableComponent[] curRef = { Component.literal("") };
+                                    tooltip.visit((sty, text) -> {
+                                        int start = 0;
+                                        while (true) {
+                                            int idx = text.indexOf('\n', start);
+                                            if (idx < 0) {
+                                                if (start < text.length())
+                                                    curRef[0] = curRef[0].append(Component.literal(text.substring(start)).withStyle(sty));
+                                                break;
+                                            }
+                                            if (start < idx)
+                                                curRef[0] = curRef[0].append(Component.literal(text.substring(start, idx)).withStyle(sty));
+                                            lines.add(curRef[0]);
+                                            curRef[0] = Component.literal("");
+                                            start = idx + 1;
+                                        }
+                                        return Optional.empty();
+                                    }, Style.EMPTY);
+                                    if (!curRef[0].getString().isEmpty() || lines.isEmpty())
+                                        lines.add(curRef[0]);
+                                    guiGraphics.renderTooltip(minecraft.font, lines, Optional.empty(), mouseX, mouseY);
+                                } else {
+                                    guiGraphics.renderTooltip(minecraft.font, tooltip, mouseX, mouseY);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void drawToolbar(GuiGraphics g, int mouseX, int mouseY, int screenHeight, int screenWidth) {

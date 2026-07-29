@@ -10,6 +10,7 @@ public class ModServerConfig {
     public final ModConfigSpec.BooleanValue antiSpam;
     public final ModConfigSpec.BooleanValue enableChannels;
     public final ModConfigSpec.IntValue maxChatHistory;
+    public final ModConfigSpec.IntValue maxCommandMessages;
     public final ModConfigSpec.BooleanValue showStrongHint;
     public final ModConfigSpec.BooleanValue syncDefaultChannel;
     public final ModConfigSpec.BooleanValue channelHistoryEnabled;
@@ -37,6 +38,9 @@ public class ModServerConfig {
         maxChatHistory = builder
                 .comment("Maximum number of chat messages to keep per conversation")
                 .defineInRange("maxChatHistory", 200, 50, 1000);
+        maxCommandMessages = builder
+                .comment("Maximum number of command console messages to keep (independent of chat history)")
+                .defineInRange("maxCommandMessages", 500, 50, 2000);
         showStrongHint = builder
                 .comment("Show strong hint above hotbar for mentions and system messages")
                 .define("showStrongHint", true);

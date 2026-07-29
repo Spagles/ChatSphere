@@ -429,9 +429,13 @@ public class ModServerChannels {
     }
 
     public void addCommandMessage(String senderName, UUID senderUuid, String commandText) {
-        addChatMessage(senderName, senderUuid, commandText,
-                "__commands__",
-                "COMMAND", "", "", "");
+        String[] lines = commandText.split("\n", -1);
+        for (String line : lines) {
+            if (line.isEmpty()) continue;
+            addChatMessage(senderName, senderUuid, line,
+                    "__commands__",
+                    "COMMAND", "", "", "");
+        }
     }
 
     public List<StoredMessage> getRecentMessages(int count) {

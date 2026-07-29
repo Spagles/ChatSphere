@@ -1,3 +1,19 @@
+## 2.0.3
+
+### Added
+- Command console history retention — command messages stored in a separate list (up to 500 entries), no longer evicted by general chat history limit
+- Command console hover tooltip support — hover over clickable/hoverable text in command output to see tooltips (e.g. achievement descriptions, mod message details)
+- Messages with newlines (`\n`) in command output are now split into individual display entries
+
+### Changed
+- Command console now shows messages one-by-one (newline-split) instead of as a single block
+- Server-side `addCommandMessage` splits multi-line content by `\n` before storing
+- Persistence layer (save/load) includes the separate command message list
+- Version bumped to 2.0.3
+
+### Fixed
+- Rich component styling (colors, click events) in command messages is now preserved — messages intercepted via mixin/event pass through the original `Component` object unchanged when no `\n` splitting is needed
+
 ## 2.0.2
 
 ### Added

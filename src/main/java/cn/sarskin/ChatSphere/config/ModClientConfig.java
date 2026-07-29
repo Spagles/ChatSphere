@@ -29,6 +29,7 @@ public class ModClientConfig {
     public final ModConfigSpec.BooleanValue soundPublic;
     public final ModConfigSpec.ConfigValue<List<? extends String>> quickPhrases;
     public final ModConfigSpec.IntValue scrollHistoryLimit;
+    public final ModConfigSpec.IntValue commandHistoryLimit;
     public final ModConfigSpec.BooleanValue renderEmojiShortcodes;
     public final ModConfigSpec.BooleanValue ncrCompat;
     public final ModConfigSpec.ConfigValue<String> customSkinApiUrl;
@@ -82,6 +83,9 @@ public class ModClientConfig {
         renderEmojiShortcodes = builder
                 .comment("Render :shortcode: emoji patterns as actual emoji in chat messages")
                 .define("renderEmojiShortcodes", true);
+        commandHistoryLimit = builder
+                .comment("Maximum number of recent commands to keep for up/down arrow recall")
+                .defineInRange("commandHistoryLimit", 50, 10, 500);
         builder.pop();
 
         builder.push("notifications");

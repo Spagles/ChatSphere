@@ -129,6 +129,24 @@ public class ChatDataStore {
         }
         root.add("messages", messagesArr);
 
+        JsonArray cmdMessagesArr = new JsonArray();
+        for (SavedMessage sm : data.commandMessages) {
+            JsonObject m = new JsonObject();
+            m.addProperty("senderName", sm.senderName);
+            m.addProperty("senderUuid", sm.senderUuid.toString());
+            m.addProperty("content", sm.content);
+            m.addProperty("timestamp", sm.timestamp);
+            m.addProperty("conversationId", sm.conversationId);
+            m.addProperty("conversationType", sm.conversationType);
+            m.addProperty("isOwn", sm.isOwn);
+            if (sm.duplicateCount > 1) m.addProperty("duplicateCount", sm.duplicateCount);
+            if (sm.replyContent != null) m.addProperty("replyContent", sm.replyContent);
+            if (sm.replySender != null) m.addProperty("replySender", sm.replySender);
+            if (sm.itemNbt != null && !sm.itemNbt.isEmpty()) m.addProperty("itemNbt", sm.itemNbt);
+            cmdMessagesArr.add(m);
+        }
+        root.add("commandMessages", cmdMessagesArr);
+
         JsonArray channelsArr = new JsonArray();
         for (String ch : data.channels) {
             channelsArr.add(ch);
@@ -224,6 +242,27 @@ public class ChatDataStore {
             }
         }
 
+        if (obj.has("commandMessages")) {
+            JsonArray arr = obj.getAsJsonArray("commandMessages");
+            for (JsonElement el : arr) {
+                JsonObject m = el.getAsJsonObject();
+                int dup = m.has("duplicateCount") ? m.get("duplicateCount").getAsInt() : 1;
+                String replyContent = m.has("replyContent") ? m.get("replyContent").getAsString() : null;
+                String replySender = m.has("replySender") ? m.get("replySender").getAsString() : null;
+                String itemNbt = m.has("itemNbt") ? m.get("itemNbt").getAsString() : null;
+                data.commandMessages.add(new SavedMessage(
+                        m.get("senderName").getAsString(),
+                        UUID.fromString(m.get("senderUuid").getAsString()),
+                        m.get("content").getAsString(),
+                        m.get("timestamp").getAsLong(),
+                        m.get("conversationId").getAsString(),
+                        m.get("conversationType").getAsString(),
+                        m.get("isOwn").getAsBoolean(),
+                        dup, replyContent, replySender, itemNbt
+                ));
+            }
+        }
+
         if (obj.has("channels")) {
             JsonArray arr = obj.getAsJsonArray("channels");
             for (JsonElement el : arr) {
@@ -310,6 +349,7 @@ public class ChatDataStore {
 
     public static class SavedData {
         public final List<SavedMessage> messages = new ArrayList<>();
+        public final List<SavedMessage> commandMessages = new ArrayList<>();
         public final List<String> channels = new ArrayList<>();
         public final Map<String, String> privateDisplayNames = new LinkedHashMap<>();
         public final Map<String, ChannelConfig> channelConfigs = new LinkedHashMap<>();

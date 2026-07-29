@@ -53,6 +53,8 @@ public class ServerConfigScreen extends Screen {
         chat.add(new Opt("config.chatsphere.enable_channels", y -> mkBool(y, "enableChannels", ModServerConfig.CONFIG.enableChannels)));
         chat.add(new Opt("config.chatsphere.max_chat_history",
             y -> mkIntBox(y, "maxChatHistory", safeGetStr(ModServerConfig.CONFIG.maxChatHistory, "50"), 50, 1000, 4)));
+        chat.add(new Opt("config.chatsphere.max_command_messages",
+            y -> mkIntBox(y, "maxCommandMessages", safeGetStr(ModServerConfig.CONFIG.maxCommandMessages, "500"), 50, 2000, 4)));
         chat.add(new Opt("config.chatsphere.backup_interval",
             y -> mkIntBox(y, "backupIntervalMinutes", safeGetStr(ModServerConfig.CONFIG.backupIntervalMinutes, "0"), 0, 1440, 4)));
         chat.add(new Opt("config.chatsphere.backup_keep",

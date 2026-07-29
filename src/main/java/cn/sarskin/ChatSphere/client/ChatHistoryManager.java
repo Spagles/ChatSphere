@@ -33,8 +33,10 @@ public class ChatHistoryManager {
     public static final String DEFAULT_CHANNEL_ID = cn.sarskin.ChatSphere.ModMain.DEFAULT_CHANNEL_ID;
     private static final ChatHistoryManager INSTANCE = new ChatHistoryManager();
     private static final int MAX_COMMAND_HISTORY = 50;
+    private static final int MAX_COMMAND_MESSAGES = 500;
 
     private final List<ChatMessageData> messages = new ArrayList<>();
+    private final List<ChatMessageData> commandMessages = new ArrayList<>();
     private final Map<String, Component> conversationDisplayNames = new LinkedHashMap<>();
     private final Set<String> knownPrivateConversations = new LinkedHashSet<>();
     private final Set<String> knownChannels = new LinkedHashSet<>();
@@ -242,8 +244,13 @@ public class ChatHistoryManager {
             for (int i = 0; i < messages.size(); i++) {
                 if (messages.get(i) == target) return i;
             }
-            return -1;
         }
+        synchronized (commandMessages) {
+            for (int i = 0; i < commandMessages.size(); i++) {
+                if (commandMessages.get(i) == target) return i;
+            }
+        }
+        return -1;
     }
 
     public void setPendingReply(String content, String sender) {
@@ -305,6 +312,11 @@ public class ChatHistoryManager {
     }
 
     public List<ChatMessageData> getMessagesByConversation(String conversationId) {
+        if (COMMAND_CONVERSATION_ID.equals(conversationId)) {
+            synchronized (commandMessages) {
+                return Collections.unmodifiableList(new ArrayList<>(commandMessages));
+            }
+        }
         synchronized (messages) {
             return messages.stream()
                     .filter(m -> m.conversationId().equals(conversationId))
@@ -313,6 +325,7 @@ public class ChatHistoryManager {
     }
 
     public List<ChatMessageData> getRecentMessages(int count) {
+        // Return combined list of recent messages across all conversations
         synchronized (messages) {
             int size = messages.size();
             if (size == 0) return List.of();
@@ -322,6 +335,14 @@ public class ChatHistoryManager {
     }
 
     public List<ChatMessageData> getRecentMessagesByConversation(String conversationId, int count) {
+        if (COMMAND_CONVERSATION_ID.equals(conversationId)) {
+            synchronized (commandMessages) {
+                int size = commandMessages.size();
+                if (size == 0) return List.of();
+                int from = Math.max(0, size - count);
+                return List.copyOf(commandMessages.subList(from, size));
+            }
+        }
         synchronized (messages) {
             return messages.stream()
                     .filter(m -> m.conversationId().equals(conversationId))
@@ -463,6 +484,11 @@ public class ChatHistoryManager {
     }
 
     public boolean hasConversation(String conversationId) {
+        if (COMMAND_CONVERSATION_ID.equals(conversationId)) {
+            synchronized (commandMessages) {
+                return !commandMessages.isEmpty();
+            }
+        }
         synchronized (messages) {
             return messages.stream().anyMatch(m -> m.conversationId().equals(conversationId));
         }
@@ -498,13 +524,51 @@ public class ChatHistoryManager {
     }
 
     public void addCommandMessage(Component senderName, UUID senderUuid, Component content, boolean isInput) {
-        addMessage(senderName, senderUuid, content,
-                COMMAND_CONVERSATION_ID, ChatMessageData.ConversationType.COMMAND, isInput);
+        addCommandMessageInternal(senderName, senderUuid, content, isInput);
+    }
+
+    private void addCommandMessageInternal(Component senderName, UUID senderUuid, Component content, boolean isInput) {
+        String contentStr = content.getString();
+        synchronized (commandMessages) {
+            // Anti-spam dedup for command messages
+            if (ModServerConfig.CONFIG.antiSpam.get() && !commandMessages.isEmpty()) {
+                ChatMessageData last = null;
+                for (int i = commandMessages.size() - 1; i >= 0; i--) {
+                    ChatMessageData m = commandMessages.get(i);
+                    if (m.conversationId().equals(COMMAND_CONVERSATION_ID)) {
+                        last = m;
+                        break;
+                    }
+                }
+                if (last != null && last.senderName().getString().equals(senderName.getString())
+                        && last.content().getString().equals(contentStr)) {
+                    last.setDuplicateCount(last.duplicateCount() + 1);
+                    if (!isInput) notifySoundForMessage(content, ChatMessageData.ConversationType.COMMAND);
+                    return;
+                }
+            }
+            if (commandMessages.size() >= MAX_COMMAND_MESSAGES) {
+                commandMessages.remove(0);
+            }
+            ChatMessageData msg = new ChatMessageData(senderName, senderUuid, content,
+                    System.currentTimeMillis(), COMMAND_CONVERSATION_ID, ChatMessageData.ConversationType.COMMAND, isInput);
+            commandMessages.add(msg);
+        }
+        if (!isInput) {
+            newMessageSinceLastCheck = true;
+            unreadCounts.merge(COMMAND_CONVERSATION_ID, 1, Integer::sum);
+            notifySoundForMessage(content, ChatMessageData.ConversationType.COMMAND);
+            checkMentionAndHint(senderName.getString(), senderName);
+        }
+        markDirty();
     }
 
     public void clear() {
         synchronized (messages) {
             messages.clear();
+        }
+        synchronized (commandMessages) {
+            commandMessages.clear();
         }
         synchronized (conversationDisplayNames) {
             conversationDisplayNames.clear();
@@ -621,6 +685,28 @@ public class ChatHistoryManager {
                 messages.add(loaded);
             }
         }
+
+        synchronized (commandMessages) {
+            commandMessages.clear();
+            for (ChatDataStore.SavedMessage sm : data.commandMessages) {
+                ChatMessageData loaded = new ChatMessageData(
+                        Component.literal(sm.senderName()),
+                        sm.senderUuid(),
+                        Component.literal(sm.content()),
+                        sm.timestamp(),
+                        sm.conversationId(),
+                        ChatMessageData.ConversationType.COMMAND,
+                        sm.isOwn()
+                );
+                if (sm.replyContent() != null && sm.replySender() != null)
+                    loaded = loaded.withReply(sm.replyContent(), sm.replySender());
+                if (sm.itemNbt() != null && !sm.itemNbt().isEmpty())
+                    loaded.setItemNbt(sm.itemNbt());
+                if (sm.duplicateCount() > 1)
+                    loaded.setDuplicateCount(sm.duplicateCount());
+                commandMessages.add(loaded);
+            }
+        }
         savedInput = data.savedInput;
     }
 
@@ -654,6 +740,24 @@ public class ChatHistoryManager {
         synchronized (messages) {
             for (ChatMessageData msg : messages) {
                 data.messages.add(new ChatDataStore.SavedMessage(
+                        msg.senderName().getString(),
+                        msg.senderUuid(),
+                        msg.content().getString(),
+                        msg.timestamp(),
+                        msg.conversationId(),
+                        msg.conversationType().name(),
+                        msg.isOwn(),
+                        msg.duplicateCount(),
+                        msg.replyContent(),
+                        msg.replySender(),
+                        msg.itemNbt()
+                ));
+            }
+        }
+
+        synchronized (commandMessages) {
+            for (ChatMessageData msg : commandMessages) {
+                data.commandMessages.add(new ChatDataStore.SavedMessage(
                         msg.senderName().getString(),
                         msg.senderUuid(),
                         msg.content().getString(),
@@ -804,8 +908,8 @@ public class ChatHistoryManager {
         serverConnected = true;
         if (!loaded) load();
         loaded = true;
+        Map<String, String[]> replyMap = new HashMap<>();
         synchronized (messages) {
-            Map<String, String[]> replyMap = new HashMap<>();
             for (ChatMessageData existing : messages) {
                 if (existing.replyContent() != null) {
                     replyMap.put(existing.senderName().getString() + "|" + existing.content().getString() + "|" + existing.conversationId(),
@@ -813,70 +917,89 @@ public class ChatHistoryManager {
                 }
             }
             messages.clear();
-            for (ClientboundMessageSyncPayload.StoredMessage sm : serverMessages) {
-                boolean isOwn = localPlayerUuid != null && sm.senderUuid().equals(localPlayerUuid);
-                String convId = sm.conversationId() != null ? sm.conversationId() : DEFAULT_CHANNEL_ID;
-                ChatMessageData.ConversationType ctype;
-                String typeStr = sm.conversationType();
-                if ("COMMAND".equals(typeStr)) {
-                    ctype = ChatMessageData.ConversationType.COMMAND;
-                } else if ("PRIVATE".equals(typeStr)) {
-                    ctype = ChatMessageData.ConversationType.PRIVATE;
-                    synchronized (conversationDisplayNames) {
-                        if (!conversationDisplayNames.containsKey(convId)) {
-                            Component displayName;
-                            if (isOwn) {
-                                displayName = resolveOtherPartyName(convId, Component.literal(sm.senderName()));
-                            } else {
-                                displayName = Component.literal(sm.senderName());
-                            }
-                            conversationDisplayNames.put(convId, displayName);
-                            knownPrivateConversations.add(convId);
+        }
+        synchronized (commandMessages) {
+            commandMessages.clear();
+        }
+        List<ChatMessageData> cmdList = new ArrayList<>();
+        List<ChatMessageData> otherList = new ArrayList<>();
+        for (ClientboundMessageSyncPayload.StoredMessage sm : serverMessages) {
+            boolean isOwn = localPlayerUuid != null && sm.senderUuid().equals(localPlayerUuid);
+            String convId = sm.conversationId() != null ? sm.conversationId() : DEFAULT_CHANNEL_ID;
+            ChatMessageData.ConversationType ctype;
+            String typeStr = sm.conversationType();
+            if ("COMMAND".equals(typeStr)) {
+                ctype = ChatMessageData.ConversationType.COMMAND;
+            } else if ("PRIVATE".equals(typeStr)) {
+                ctype = ChatMessageData.ConversationType.PRIVATE;
+                synchronized (conversationDisplayNames) {
+                    if (!conversationDisplayNames.containsKey(convId)) {
+                        Component displayName;
+                        if (isOwn) {
+                            displayName = resolveOtherPartyName(convId, Component.literal(sm.senderName()));
+                        } else {
+                            displayName = Component.literal(sm.senderName());
                         }
+                        conversationDisplayNames.put(convId, displayName);
+                        knownPrivateConversations.add(convId);
                     }
-                } else {
-                    ctype = ChatMessageData.ConversationType.CHANNEL;
                 }
-                String text = sm.content();
-                String senderName = sm.senderName();
-                String rc = sm.replyContent();
-                String rs = sm.replySender();
-                ChatMessageData msgData;
-                if (ctype == ChatMessageData.ConversationType.COMMAND) {
-                    msgData = new ChatMessageData(
-                            Component.literal(text.isEmpty() ? senderName : text),
-                            sm.senderUuid(),
-                            Component.literal(""),
-                            sm.timestamp(),
-                            convId,
-                            ctype,
-                            isOwn
-                    );
-                } else {
-                    msgData = new ChatMessageData(
-                            Component.literal(senderName),
-                            sm.senderUuid(),
-                            Component.literal(text),
-                            sm.timestamp(),
-                            convId,
-                            ctype,
-                            isOwn
-                    );
-                }
-                if (rc != null && !rc.isEmpty() && rs != null && !rs.isEmpty()) {
-                    msgData = msgData.withReply(rc, rs);
-                }
-                String inbt = sm.itemNbt();
-                if (inbt != null && !inbt.isEmpty()) {
-                    msgData.setItemNbt(inbt);
-                }
-                messages.add(msgData);
+            } else {
+                ctype = ChatMessageData.ConversationType.CHANNEL;
             }
+            String text = sm.content();
+            String senderName = sm.senderName();
+            String rc = sm.replyContent();
+            String rs = sm.replySender();
+            ChatMessageData msgData;
+            if (ctype == ChatMessageData.ConversationType.COMMAND) {
+                msgData = new ChatMessageData(
+                        Component.literal(text.isEmpty() ? senderName : text),
+                        sm.senderUuid(),
+                        Component.literal(""),
+                        sm.timestamp(),
+                        convId,
+                        ctype,
+                        isOwn
+                );
+            } else {
+                msgData = new ChatMessageData(
+                        Component.literal(senderName),
+                        sm.senderUuid(),
+                        Component.literal(text),
+                        sm.timestamp(),
+                        convId,
+                        ctype,
+                        isOwn
+                );
+            }
+            if (rc != null && !rc.isEmpty() && rs != null && !rs.isEmpty()) {
+                msgData = msgData.withReply(rc, rs);
+            }
+            String inbt = sm.itemNbt();
+            if (inbt != null && !inbt.isEmpty()) {
+                msgData.setItemNbt(inbt);
+            }
+            if (ctype == ChatMessageData.ConversationType.COMMAND) {
+                cmdList.add(msgData);
+            } else {
+                otherList.add(msgData);
+            }
+        }
 
-            // Recalculate duplicate counts for consecutive same-sender same-text messages per conversation
+        // Process command messages
+        synchronized (commandMessages) {
+            commandMessages.addAll(cmdList);
+            if (commandMessages.size() > MAX_COMMAND_MESSAGES) {
+                commandMessages.subList(0, commandMessages.size() - MAX_COMMAND_MESSAGES).clear();
+            }
+        }
+
+        // Process non-command messages with dedup
+        synchronized (messages) {
             Map<String, ChatMessageData> lastPerConv = new HashMap<>();
             List<ChatMessageData> deduped = new ArrayList<>();
-            for (ChatMessageData msg : messages) {
+            for (ChatMessageData msg : otherList) {
                 ChatMessageData last = lastPerConv.get(msg.conversationId());
                 if (last != null && last.senderName().getString().equals(msg.senderName().getString())
                         && last.content().getString().equals(msg.content().getString())
@@ -887,7 +1010,6 @@ public class ChatHistoryManager {
                     lastPerConv.put(msg.conversationId(), msg);
                 }
             }
-            messages.clear();
             messages.addAll(deduped);
             for (int i = 0; i < messages.size(); i++) {
                 ChatMessageData msg = messages.get(i);

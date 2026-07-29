@@ -77,8 +77,12 @@ public class ConfigScreen extends Screen {
         behavior.add(new Opt("config.chatsphere.preserve_input", y -> mkBool(y, ModClientConfig.CONFIG.preserveInput)));
         behavior.add(new Opt("config.chatsphere.max_chat_history",
             y -> mkIntBox(y, safeGetStr(ModServerConfig.CONFIG.maxChatHistory, "50"), 50, 1000, 4, v -> sendConfigUpdate("maxChatHistory", String.valueOf(v))), null));
+        behavior.add(new Opt("config.chatsphere.max_command_messages",
+            y -> mkIntBox(y, safeGetStr(ModServerConfig.CONFIG.maxCommandMessages, "500"), 50, 2000, 4, v -> sendConfigUpdate("maxCommandMessages", String.valueOf(v))), null));
         behavior.add(new Opt("config.chatsphere.scroll_history_limit",
             y -> mkIntBox(y, String.valueOf(ModClientConfig.CONFIG.scrollHistoryLimit.get()), 50, 500, 3, v -> { ModClientConfig.CONFIG.scrollHistoryLimit.set(v); CONFIG_SPEC.save(); }), null));
+        behavior.add(new Opt("config.chatsphere.command_history_limit",
+            y -> mkIntBox(y, String.valueOf(ModClientConfig.CONFIG.commandHistoryLimit.get()), 10, 500, 3, v -> { ModClientConfig.CONFIG.commandHistoryLimit.set(v); CONFIG_SPEC.save(); }), null));
         cats.add(new Cat("config.chatsphere.behavior", behavior));
 
         List<Opt> channels = new ArrayList<>();

@@ -108,7 +108,9 @@
   "config.chatsphere.behavior": "行为设置",
   "config.chatsphere.anti_spam": "反刷屏（合并重复消息）",
   "config.chatsphere.max_chat_history": "最大聊天记录数",
+  "config.chatsphere.max_command_messages": "控制台消息保留数",
   "config.chatsphere.scroll_history_limit": "滚动历史上限",
+  "config.chatsphere.command_history_limit": "命令输入历史上限",
   "config.chatsphere.preserve_input": "关闭时保留输入内容",
   "config.chatsphere.theme": "深色主题",
   "config.chatsphere.strong_hint": "显示强提醒",
@@ -267,6 +269,9 @@
   "chatsphere.banned_word.feedback": "您的消息因包含违禁词被屏蔽",
   "config.chatsphere.banned_words": "违禁词（每行一个，支持正则表达式）",
   "config.chatsphere.banned_words_cat": "违禁词",
+
+  "pv.activation.chatsphere_room": "聊境语音房间",
+  "pv.source_line.chatsphere_room": "聊境房间音频",
 
   "screen.chatsphere.blocklist.title": "已屏蔽的玩家",
   "screen.chatsphere.blocklist.empty": "暂无已屏蔽的玩家。右键消息选择「屏蔽消息」可屏蔽玩家。",

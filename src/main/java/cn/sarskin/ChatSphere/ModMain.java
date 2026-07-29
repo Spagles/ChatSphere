@@ -11,13 +11,16 @@ import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.loading.FMLLoader;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.api.distmarker.Dist;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Mod(ModMain.MODID)
 public class ModMain {
     public static final String MODID = "chatsphere";
     public static final String DEFAULT_CHANNEL_ID = "#general";
+    public static final Logger LOGGER = LoggerFactory.getLogger(ModMain.class);
 
     public ModMain(IEventBus modEventBus, ModContainer modContainer) {
         modContainer.registerConfig(ModConfig.Type.CLIENT, ModClientConfig.CONFIG_SPEC);
