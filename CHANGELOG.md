@@ -1,42 +1,23 @@
 ## 2.1.0
 
 ### Added
-- Command console message persistence — `ServerboundCommandMessagePayload` sends command input/output to server, stored in `messages.json`, restored on reconnect via `sendMessagesToPlayer()` / `applyServerMessages()`
-- Color/formatting preservation across reconnect — Components serialized as JSON via `Component.Serializer.toJson(component, RegistryAccess.EMPTY)`, restored via `Component.Serializer.fromJson(json, RegistryAccess.EMPTY)`
-- Multi-line command output — server no longer splits by `\n`; client renders each line separately with proper `CommandHit` registration (click/hover events work per-line)
-- System message grouping — 150ms buffer in `ModClientEvents` coalesces consecutive system packets (e.g. `/help`) into a single multi-line entry
-- HUD unread count badge — red badge on chat icon (top-right) showing total unread across all conversations, with flashing animation
-- Configurable badge toggle — `notificationBadge` (default on) in settings → Sound section
-- PlasmoVoice room localization keys — `pv.activation.chatsphere_room` / `pv.source_line.chatsphere_room`
-- Voice message offline delivery — undelivered voice persisted to `voice_undelivered/index.json`, delivered on `PlayerLoggedInEvent`
-- Local voice message cache — received voice cached to `voice_cache/index.json` for replay after restart
-- Voice message animation fix — `voicePlayerCache` reuses `PlaybackPlayer` across frames, `put` hook registers Playback under `voiceMessageId`
-- `ChatComponentMixin` — chat component mixin for enhanced interactions
-- `ChatDataStore.commandMessages` / `blockedPlayers` storage fields
+- VoiceMessages mod compatibility — offline delivery, local cache, chat bubble playback, custom packet routing
+- Command console persistence — input/output stored on server, restored on reconnect
+- HUD unread count badge on chat icon (configurable toggle)
+- Multi-line command output rendering with per-line click/hover support
 
 ### Changed
-- System messages use event sender UUID (`Util.NIL_UUID`) instead of `localUuid` for server sync — fixes green `"> "` prefix on system output
-- `sendMessagesToPlayer` now allows `NIL_UUID` command messages to sync to all players
-- `addChatMessage` skips `learnPlayerName` for `NIL_UUID` to avoid junk entries
-- `addCommandMessage` no longer splits content by newlines — multi-line output stored as single entry
-- HUD overlay command rendering uses `guiGraphics.enableScissor()` to clip text within bubble bounds
-- HUD badge rendered inside `drawIcon()` after icon blit, ensuring it appears on top
-- Chat icon unread badge reduced in size (padding +3, height 8, tighter positioning)
-- Banned words editor width clamped to screen bounds (`Math.min(btnW * 3, width - inputX - 10)`)
-- Voice messages routed through ChatSphere custom packets — VM used as recording/playback library only
-- `voiceMessageId` (UUID) propagated through `ServerboundVoicePacket` → `ClientboundVoicePacket` → `ModVoiceStorage`
-- Version bumped to 2.0.3
+- Color and formatting now preserved across reconnects (JSON serialization)
+- System messages use correct UUID to fix green `"> "` prefix on reconnect
+- Voice messages routed through ChatSphere custom packets (VM used as library only)
+- Version bumped to 2.1.0
 
 ### Fixed
-- Command console messages all showing green `"> "` prefix after server sync (wrong `isOwn` due to `localUuid` being used for system output)
-- Color codes lost on reconnect — Component now serialized/deserialized as JSON through the server persistence pipeline
-- Multi-line command output shown as separate bubble entries instead of one multi-line message
-- Right-side blank space in multi-line bubbles (width calculation no longer sums all line widths via `font.width(contentText)`)
-- Text overflow outside bubble in narrow windows (scissor clip applied)
-- Unread badge drawn below chat icon instead of on top (fixed render order)
-- Missing PV addon localization causing key display in voice room UI
-- Banned words input extending past right screen edge
-- ServerboundConfigUpdatePayload registration accidentally dropped during development
+- Color codes lost on reconnect
+- Multi-line command output shown as separate bubbles instead of one message
+- Text overflow outside bubble in narrow windows
+- Banned words input extending past screen edge
+- Missing PV addon localization
 
 ## 2.0.2
 
