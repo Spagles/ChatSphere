@@ -1690,9 +1690,15 @@ public class ModChatScreen extends Screen {
         }
 
         if (isCommand) {
-            boolean isVoice = msg.content().getString().startsWith("VoiceMessage#");
-            if (isVoice && ModVoiceMessagesIntegration.isVoiceMessagesLoaded()) {
-                java.util.UUID vmUuid = java.util.UUID.fromString(msg.content().getString().substring("VoiceMessage#".length()));
+            boolean isVoice = false;
+            java.util.UUID vmUuid = null;
+            if (msg.content().getString().startsWith("VoiceMessage#") && ModVoiceMessagesIntegration.isVoiceMessagesLoaded()) {
+                try {
+                    vmUuid = java.util.UUID.fromString(msg.content().getString().substring("VoiceMessage#".length()));
+                    isVoice = true;
+                } catch (Exception ignored) {}
+            }
+            if (isVoice) {
                 int vmBg = 0x00000000;
                 int vmH = 20;
                 int vmY = textY;
