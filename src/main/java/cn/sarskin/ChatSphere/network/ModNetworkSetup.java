@@ -1,6 +1,5 @@
 package cn.sarskin.ChatSphere.network;
 
-import cn.sarskin.ChatSphere.ModMain;
 import cn.sarskin.ChatSphere.config.ModClientConfig;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -64,6 +63,21 @@ public class ModNetworkSetup {
                 ServerboundConfigUpdatePayload.TYPE,
                 ServerboundConfigUpdatePayload.STREAM_CODEC,
                 ServerboundConfigUpdatePayload::handle
+        );
+        registrar.playToServer(
+                ServerboundVoicePacket.TYPE,
+                ServerboundVoicePacket.STREAM_CODEC,
+                ServerboundVoicePacket::handle
+        );
+        registrar.playToServer(
+                ServerboundCommandMessagePayload.TYPE,
+                ServerboundCommandMessagePayload.STREAM_CODEC,
+                ServerboundCommandMessagePayload::handle
+        );
+        registrar.playToClient(
+                ClientboundVoicePacket.TYPE,
+                ClientboundVoicePacket.STREAM_CODEC,
+                ClientboundVoicePacket::handle
         );
     }
 }

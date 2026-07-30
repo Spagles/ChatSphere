@@ -1,0 +1,87 @@
+package cn.sarskin.ChatSphere.network;
+
+import cn.sarskin.ChatSphere.ModMain;
+import cn.sarskin.ChatSphere.client.ChatHistoryManager;
+import cn.sarskin.ChatSphere.client.ChatMessageData;
+import cn.sarskin.ChatSphere.client.ModVoiceMessagesIntegration;
+import io.netty.buffer.ByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+
+import java.nio.charset.StandardCharsets;
+import java.util.UUID;
+
+public record ClientboundVoicePacket(
+        UUID voiceMessageId,
+        UUID senderUuid,
+        String conversationId,
+        String conversationType,
+        int frameCount,
+        byte[] audioData
+) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<ClientboundVoicePacket> TYPE =
+            new Type<>(ResourceLocation.fromNamespaceAndPath(ModMain.MODID, "voice_s2c"));
+
+    public static final StreamCodec<ByteBuf, ClientboundVoicePacket> STREAM_CODEC =
+            StreamCodec.of(ClientboundVoicePacket::write, ClientboundVoicePacket::read);
+
+    private static void write(ByteBuf buf, ClientboundVoicePacket p) {
+        writeUuid(buf, p.voiceMessageId);
+        writeUuid(buf, p.senderUuid);
+        writeUtf(buf, p.conversationId);
+        writeUtf(buf, p.conversationType);
+        buf.writeInt(p.frameCount);
+        buf.writeInt(p.audioData.length);
+        buf.writeBytes(p.audioData);
+    }
+
+    private static ClientboundVoicePacket read(ByteBuf buf) {
+        UUID voiceMessageId = readUuid(buf);
+        UUID senderUuid = readUuid(buf);
+        String convId = readUtf(buf);
+        String convType = readUtf(buf);
+        int frameCount = buf.readInt();
+        int len = buf.readInt();
+        byte[] audioData = new byte[len];
+        buf.readBytes(audioData);
+        return new ClientboundVoicePacket(voiceMessageId, senderUuid, convId, convType, frameCount, audioData);
+    }
+
+    @Override
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+
+    public void handle(IPayloadContext ctx) {
+        ctx.enqueueWork(() -> {
+            ModVoiceMessagesIntegration.handleIncomingVoice(
+                    voiceMessageId, senderUuid, conversationId, conversationType, frameCount, audioData);
+        });
+    }
+
+    private static void writeUtf(ByteBuf buf, String s) {
+        if (s == null) s = "";
+        byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+        buf.writeInt(bytes.length);
+        buf.writeBytes(bytes);
+    }
+
+    private static String readUtf(ByteBuf buf) {
+        int len = buf.readInt();
+        byte[] bytes = new byte[len];
+        buf.readBytes(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private static void writeUuid(ByteBuf buf, UUID uuid) {
+        buf.writeLong(uuid.getMostSignificantBits());
+        buf.writeLong(uuid.getLeastSignificantBits());
+    }
+
+    private static UUID readUuid(ByteBuf buf) {
+        return new UUID(buf.readLong(), buf.readLong());
+    }
+}

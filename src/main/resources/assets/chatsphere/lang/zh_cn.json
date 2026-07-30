@@ -10,6 +10,7 @@
   "config.chatsphere.enable_channels": "启用频道",
   "config.chatsphere.notifications": "通知设置",
   "config.chatsphere.notification_sound": "新消息音效",
+  "config.chatsphere.notification_badge": "显示未读数徽章",
   "config.chatsphere.notification_flash": "图标闪烁",
   "config.chatsphere.notification_popup": "屏幕角落弹窗",
 
@@ -276,5 +277,15 @@
   "screen.chatsphere.blocklist.title": "已屏蔽的玩家",
   "screen.chatsphere.blocklist.empty": "暂无已屏蔽的玩家。右键消息选择「屏蔽消息」可屏蔽玩家。",
   "screen.chatsphere.tip.blocklist": "管理已屏蔽的玩家",
-  "screen.chatsphere.tip.pick_item": "从背包中选择一个物品分享"
+  "screen.chatsphere.tip.pick_item": "从背包中选择一个物品分享",
+  "screen.chatsphere.tip.voice_message": "语音消息",
+  "chatsphere.voice.received": "语音消息",
+
+  "config.chatsphere.voice_cache": "语音缓存",
+  "config.chatsphere.voice_cache_enabled": "启用语音缓存",
+  "config.chatsphere.voice_cache_max_age": "语音缓存最大保存时间（小时）",
+  "config.chatsphere.voice_offline": "离线语音",
+  "config.chatsphere.voice_offline_enabled": "启用离线语音存储",
+  "config.chatsphere.voice_offline_max_age": "离线语音最大保存时间（小时）",
+  "config.chatsphere.voice_offline_max_per_player": "每名玩家最大离线语音数"
 }

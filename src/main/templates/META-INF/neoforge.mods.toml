@@ -45,6 +45,9 @@ logoFile="logo.png"
 [[mixins]]
 config="chatsphere.mixins.json"
 
+[[mixins]]
+config="chatsphere.vm.mixins.json"
+
 # The authors of the mod, displayed in the mod UI (optional)
 authors="xwwsdd"
 

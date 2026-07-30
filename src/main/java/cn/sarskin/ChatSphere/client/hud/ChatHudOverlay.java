@@ -46,6 +46,8 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
     private long lastMessageTime;
     private boolean flashing;
     private long flashStartTime;
+    private long badgeFlashStartTime;
+    private boolean badgeFlashing;
 
     private ChatHudOverlay() {}
 
@@ -123,7 +125,12 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
             text.append(" ");
         }
         if (!itemRendered) {
-            text.append(msg.renderedContent());
+            String raw = msg.renderedContent().getString();
+            if (raw.startsWith("VoiceMessage#")) {
+                text.append(Component.translatable("chatsphere.voice.received").withStyle(ChatFormatting.LIGHT_PURPLE));
+            } else {
+                text.append(msg.renderedContent());
+            }
         }
         if (showTime) {
             text.append("  ").append(Component.literal(ChatHistoryManager.formatTimestamp(msg.timestamp())).withStyle(ChatFormatting.GRAY));
@@ -203,5 +210,28 @@ public class ChatHudOverlay implements LayeredDraw.Layer {
         guiGraphics.setColor(1f, 1f, 1f, alpha);
         guiGraphics.blit(CHAT_ICON, iconX, iconY, 0, 0, ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
         guiGraphics.setColor(1f, 1f, 1f, 1f);
+
+        if (ModClientConfig.CONFIG.notificationBadge.get()) {
+            int totalUnread = history.getTotalUnreadCount();
+            if (totalUnread > 0) {
+                String badge = totalUnread > 99 ? "99+" : String.valueOf(totalUnread);
+                int badgeWidth = mc.font.width(badge) + 3;
+                int badgeHeight = 8;
+                int bx = iconX + ICON_SIZE - badgeWidth + 1;
+                int by = iconY - 1;
+
+                if (!badgeFlashing) { badgeFlashing = true; badgeFlashStartTime = now; }
+                long elapsed = now - badgeFlashStartTime;
+                float flashAlpha = 1.0f;
+                if (elapsed < 1000) {
+                    flashAlpha = (float) Math.sin(elapsed * 0.008) * 0.3f + 0.7f;
+                }
+                int bgColor = (int)(0xCC * flashAlpha) << 24 | 0xFF4444;
+                guiGraphics.fill(bx, by, bx + badgeWidth, by + badgeHeight, bgColor);
+                guiGraphics.drawString(mc.font, badge, bx + 1, by, 0xFFFFFFFF, false);
+            } else {
+                badgeFlashing = false;
+            }
+        }
     }
 }

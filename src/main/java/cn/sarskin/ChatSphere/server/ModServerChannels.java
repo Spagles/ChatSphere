@@ -12,6 +12,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.Util;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
@@ -166,7 +167,10 @@ public class ModServerChannels {
             msgs = new ArrayList<>();
             String playerUuid = player.getUUID().toString();
             for (StoredMessage m : messageHistory) {
-                if ("PRIVATE".equals(m.conversationType())) {
+                if ("COMMAND".equals(m.conversationType())) {
+                    UUID suid = m.senderUuid();
+                    if (suid != null && !suid.equals(Util.NIL_UUID) && !suid.toString().equals(playerUuid)) continue;
+                } else if ("PRIVATE".equals(m.conversationType())) {
                     String convId = m.conversationId();
                     boolean isForPlayer = m.senderUuid().toString().equals(playerUuid);
                     if (!isForPlayer) {
@@ -212,7 +216,7 @@ public class ModServerChannels {
                                  String conversationId, String conversationType,
                                  String replyContent, String replySender,
                                  String itemNbt) {
-        if (senderUuid != null && senderName != null && !senderName.isEmpty()) {
+        if (senderUuid != null && !senderUuid.equals(Util.NIL_UUID) && senderName != null && !senderName.isEmpty()) {
             learnPlayerName(senderUuid.toString(), senderName);
         }
         StoredMessage msg = new StoredMessage(senderName, senderUuid, content, System.currentTimeMillis(),
@@ -429,13 +433,10 @@ public class ModServerChannels {
     }
 
     public void addCommandMessage(String senderName, UUID senderUuid, String commandText) {
-        String[] lines = commandText.split("\n", -1);
-        for (String line : lines) {
-            if (line.isEmpty()) continue;
-            addChatMessage(senderName, senderUuid, line,
-                    "__commands__",
-                    "COMMAND", "", "", "");
-        }
+        if (commandText.isEmpty()) return;
+        addChatMessage(senderName, senderUuid, commandText,
+                "__commands__",
+                "COMMAND", "", "", "");
     }
 
     public List<StoredMessage> getRecentMessages(int count) {

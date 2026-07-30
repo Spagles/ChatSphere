@@ -16,6 +16,7 @@ public class ModClientConfig {
     public final ModConfigSpec.BooleanValue notificationSound;
     public final ModConfigSpec.BooleanValue notificationFlash;
     public final ModConfigSpec.BooleanValue notificationPopup;
+    public final ModConfigSpec.BooleanValue notificationBadge;
 
     public final ModConfigSpec.BooleanValue preserveInput;
     public final ModConfigSpec.BooleanValue themeDark;
@@ -35,6 +36,8 @@ public class ModClientConfig {
     public final ModConfigSpec.ConfigValue<String> customSkinApiUrl;
     public final ModConfigSpec.BooleanValue avatarCacheEnabled;
     public final ModConfigSpec.BooleanValue allowVanillaConnection;
+    public final ModConfigSpec.BooleanValue voiceCacheEnabled;
+    public final ModConfigSpec.IntValue voiceCacheMaxAgeHours;
 
     static {
         Pair<ModClientConfig, ModConfigSpec> pair = new ModConfigSpec.Builder().configure(ModClientConfig::new);
@@ -98,6 +101,9 @@ public class ModClientConfig {
         notificationPopup = builder
                 .comment("Show popup on new message")
                 .define("notificationPopup", true);
+        notificationBadge = builder
+                .comment("Show unread count badge on chat icon")
+                .define("notificationBadge", true);
         soundMention = builder
                 .comment("Sound on @mention")
                 .define("soundMention", true);
@@ -131,6 +137,14 @@ public class ModClientConfig {
         allowVanillaConnection = builder
                 .comment("Allow connecting to servers not running NeoForge (marks all network payloads as optional)")
                 .define("allowVanillaConnection", false);
+        builder.pop();
+        builder.push("voice_cache");
+        voiceCacheEnabled = builder
+                .comment("Enable local voice message caching for replay after restart")
+                .define("voiceCacheEnabled", true);
+        voiceCacheMaxAgeHours = builder
+                .comment("Maximum age in hours for cached voice messages before cleanup")
+                .defineInRange("voiceCacheMaxAgeHours", 24, 1, 168);
         builder.pop();
     }
 

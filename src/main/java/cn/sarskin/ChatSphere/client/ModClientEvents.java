@@ -3,9 +3,15 @@ package cn.sarskin.ChatSphere.client;
 import cn.sarskin.ChatSphere.ModMain;
 import cn.sarskin.ChatSphere.client.screen.ConfigScreen;
 import cn.sarskin.ChatSphere.client.screen.ModChatScreen;
+import cn.sarskin.ChatSphere.network.ServerboundCommandMessagePayload;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.chat.ChatType;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -13,6 +19,8 @@ import net.neoforged.neoforge.client.event.ClientChatReceivedEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @EventBusSubscriber(modid = ModMain.MODID, value = Dist.CLIENT)
@@ -20,12 +28,54 @@ public class ModClientEvents {
 
     public static volatile long lastCommandTime;
 
+    // Buffer for grouping consecutive system messages (e.g. /help output sent as separate packets)
+    private static final List<Component> sysMsgBuffer = new ArrayList<>();
+    private static UUID sysMsgSender;
+    private static long sysMsgFlushTime;
+    private static final long SYS_MSG_DELAY_MS = 150;
+
+    private static void flushSysMsgBuffer() {
+        if (sysMsgBuffer.isEmpty()) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) { sysMsgBuffer.clear(); return; }
+        ChatHistoryManager history = ChatHistoryManager.getInstance();
+        ClientPacketListener conn = mc.getConnection();
+        boolean connected = conn != null && history.isServerConnected();
+
+        Component combined;
+        if (sysMsgBuffer.size() == 1) {
+            combined = sysMsgBuffer.get(0);
+        } else {
+            MutableComponent merged = Component.literal("");
+            for (int i = 0; i < sysMsgBuffer.size(); i++) {
+                if (i > 0) merged = merged.append(Component.literal("\n"));
+                merged = merged.append(sysMsgBuffer.get(i));
+            }
+            combined = merged;
+        }
+
+        history.addCommandMessage(combined, sysMsgSender, Component.literal(""), false);
+
+        if (connected) {
+            UUID sendUuid = sysMsgSender != null ? sysMsgSender : Util.NIL_UUID;
+            conn.send(new ServerboundCustomPayloadPacket(
+                    new ServerboundCommandMessagePayload(Component.Serializer.toJson(combined, RegistryAccess.EMPTY), sendUuid)));
+        }
+
+        sysMsgBuffer.clear();
+        sysMsgSender = null;
+    }
+
     @SubscribeEvent
     public static void onClientTickPre(ClientTickEvent.Pre event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
         ChatHintsManager.getInstance().tick();
+
+        if (!sysMsgBuffer.isEmpty() && System.currentTimeMillis() >= sysMsgFlushTime) {
+            flushSysMsgBuffer();
+        }
 
         while (mc.options.keyChat.consumeClick()) {
             mc.setScreen(new ModChatScreen(""));
@@ -42,6 +92,7 @@ public class ModClientEvents {
 
     @SubscribeEvent
     public static void onClientDisconnect(ClientPlayerNetworkEvent.LoggingOut event) {
+        flushSysMsgBuffer();
         ChatHistoryManager history = ChatHistoryManager.getInstance();
         history.saveNow();
         history.setServerConnected(false);
@@ -64,9 +115,18 @@ public class ModClientEvents {
             if (event instanceof ClientChatReceivedEvent.System sys && sys.isOverlay()) {
                 return;
             }
-            ChatHistoryManager history = ChatHistoryManager.getInstance();
-            history.addCommandMessage(message, sender, Component.literal(""), false);
+            // Buffer system messages to group multi-packet output (e.g. /help)
+            if (sysMsgBuffer.isEmpty()) {
+                sysMsgSender = sender != null ? sender : Util.NIL_UUID;
+            }
+            sysMsgBuffer.add(message);
+            sysMsgFlushTime = System.currentTimeMillis() + SYS_MSG_DELAY_MS;
             return;
+        }
+
+        // Non-system message: flush any pending system message buffer first
+        if (!sysMsgBuffer.isEmpty()) {
+            flushSysMsgBuffer();
         }
 
         String text = message.getString();

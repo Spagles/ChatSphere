@@ -11,5 +11,7 @@ public class ModServerEvents {
         ModServerChannels msc = ModServerChannels.getInstance(sp.server);
         msc.sendToPlayer(sp);
         msc.sendMessagesToPlayer(sp);
+        ModVoiceStorage vs = ModVoiceStorage.getInstance(sp.server);
+        vs.deliverToPlayer(sp);
     }
 }

@@ -10,6 +10,7 @@
   "config.chatsphere.enable_channels": "Enable Channels",
   "config.chatsphere.notifications": "Notification Settings",
   "config.chatsphere.notification_sound": "New Message Sound",
+  "config.chatsphere.notification_badge": "Show Unread Count Badge",
   "config.chatsphere.notification_flash": "Icon Flash",
   "config.chatsphere.notification_popup": "Screen Corner Popup",
 
@@ -279,5 +280,15 @@
   "screen.chatsphere.blocklist.title": "Blocked Players",
   "screen.chatsphere.blocklist.empty": "No blocked players. Right-click a message and select \"Block Messages\" to block a player.",
   "screen.chatsphere.tip.blocklist": "Manage blocked players",
-  "screen.chatsphere.tip.pick_item": "Pick an item from inventory to share"
+  "screen.chatsphere.tip.pick_item": "Pick an item from inventory to share",
+  "screen.chatsphere.tip.voice_message": "Voice Message",
+  "chatsphere.voice.received": "Voice Message",
+
+  "config.chatsphere.voice_cache": "Voice Cache",
+  "config.chatsphere.voice_cache_enabled": "Enable Voice Cache",
+  "config.chatsphere.voice_cache_max_age": "Voice Cache Max Age (hours)",
+  "config.chatsphere.voice_offline": "Offline Voice",
+  "config.chatsphere.voice_offline_enabled": "Enable Offline Voice Storage",
+  "config.chatsphere.voice_offline_max_age": "Offline Voice Max Age (hours)",
+  "config.chatsphere.voice_offline_max_per_player": "Offline Voice Max Per Player"
 }

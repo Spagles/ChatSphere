@@ -91,6 +91,7 @@ public class ConfigScreen extends Screen {
 
         List<Opt> sound = new ArrayList<>();
         sound.add(new Opt("config.chatsphere.notification_sound", y -> mkBool(y, ModClientConfig.CONFIG.notificationSound)));
+        sound.add(new Opt("config.chatsphere.notification_badge", y -> mkBool(y, ModClientConfig.CONFIG.notificationBadge)));
         sound.add(new Opt("config.chatsphere.sound_mention", y -> mkBool(y, ModClientConfig.CONFIG.soundMention)));
         sound.add(new Opt("config.chatsphere.sound_whisper", y -> mkBool(y, ModClientConfig.CONFIG.soundWhisper)));
         sound.add(new Opt("config.chatsphere.sound_system", y -> mkBool(y, ModClientConfig.CONFIG.soundSystem)));
@@ -125,6 +126,12 @@ public class ConfigScreen extends Screen {
         List<Opt> network = new ArrayList<>();
         network.add(new Opt("config.chatsphere.allow_vanilla_connection", y -> mkBool(y, ModClientConfig.CONFIG.allowVanillaConnection)));
         cats.add(new Cat("config.chatsphere.network", network));
+
+        List<Opt> voice = new ArrayList<>();
+        voice.add(new Opt("config.chatsphere.voice_cache_enabled", y -> mkBool(y, ModClientConfig.CONFIG.voiceCacheEnabled)));
+        voice.add(new Opt("config.chatsphere.voice_cache_max_age",
+            y -> mkIntBox(y, String.valueOf(ModClientConfig.CONFIG.voiceCacheMaxAgeHours.get()), 1, 168, 3, v -> { ModClientConfig.CONFIG.voiceCacheMaxAgeHours.set(v); CONFIG_SPEC.save(); }), null));
+        cats.add(new Cat("config.chatsphere.voice_cache", voice));
 
         if (NCRCompat.isNCRLoaded()) {
             List<Opt> ncrops = new ArrayList<>();

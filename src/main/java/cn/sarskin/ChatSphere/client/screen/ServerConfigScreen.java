@@ -74,13 +74,22 @@ public class ServerConfigScreen extends Screen {
 
         List<Opt> banned = new ArrayList<>();
         banned.add(new Opt("config.chatsphere.banned_words", y -> {
-            EditBox box = new EditBox(font, inputX, y, btnW * 3, 60, Component.literal(""));
+            int boxW = Math.min(btnW * 3, Math.max(btnW, width - inputX - 10));
+            EditBox box = new EditBox(font, inputX, y, boxW, 60, Component.literal(""));
             box.setValue(safeGetStr(ModServerConfig.CONFIG.bannedWords, ""));
             box.setMaxLength(10000);
             box.setResponder(val -> sendConfigUpdate("bannedWords", val));
             return box;
         }));
         cats.add(new Cat("config.chatsphere.banned_words_cat", banned));
+
+        List<Opt> voice = new ArrayList<>();
+        voice.add(new Opt("config.chatsphere.voice_offline_enabled", y -> mkBool(y, "voiceOfflineStorage", ModServerConfig.CONFIG.voiceOfflineStorage)));
+        voice.add(new Opt("config.chatsphere.voice_offline_max_age",
+            y -> mkIntBox(y, "voiceOfflineMaxAgeHours", safeGetStr(ModServerConfig.CONFIG.voiceOfflineMaxAgeHours, "24"), 1, 168, 3)));
+        voice.add(new Opt("config.chatsphere.voice_offline_max_per_player",
+            y -> mkIntBox(y, "voiceOfflineMaxPerPlayer", safeGetStr(ModServerConfig.CONFIG.voiceOfflineMaxPerPlayer, "10"), 1, 50, 2)));
+        cats.add(new Cat("config.chatsphere.voice_offline", voice));
     }
 
     @Override

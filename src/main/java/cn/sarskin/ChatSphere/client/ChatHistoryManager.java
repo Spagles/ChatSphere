@@ -10,9 +10,11 @@ import cn.sarskin.ChatSphere.network.ClientboundPublicChannelListPayload;
 import cn.sarskin.ChatSphere.network.ServerboundChannelActionPayload;
 import cn.sarskin.ChatSphere.server.ModServerChannels;
 import cn.sarskin.ChatSphere.storage.ModStoragePaths;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.multiplayer.ServerData;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
 
@@ -924,7 +926,8 @@ public class ChatHistoryManager {
         List<ChatMessageData> cmdList = new ArrayList<>();
         List<ChatMessageData> otherList = new ArrayList<>();
         for (ClientboundMessageSyncPayload.StoredMessage sm : serverMessages) {
-            boolean isOwn = localPlayerUuid != null && sm.senderUuid().equals(localPlayerUuid);
+            UUID suid = sm.senderUuid();
+            boolean isOwn = localPlayerUuid != null && suid != null && !suid.equals(Util.NIL_UUID) && suid.equals(localPlayerUuid);
             String convId = sm.conversationId() != null ? sm.conversationId() : DEFAULT_CHANNEL_ID;
             ChatMessageData.ConversationType ctype;
             String typeStr = sm.conversationType();
@@ -953,8 +956,18 @@ public class ChatHistoryManager {
             String rs = sm.replySender();
             ChatMessageData msgData;
             if (ctype == ChatMessageData.ConversationType.COMMAND) {
+                Component cmdText;
+                if (text.isEmpty()) {
+                    cmdText = Component.literal(senderName);
+                } else {
+                    try {
+                        cmdText = Component.Serializer.fromJson(text, RegistryAccess.EMPTY);
+                    } catch (Exception e) {
+                        cmdText = Component.literal(text);
+                    }
+                }
                 msgData = new ChatMessageData(
-                        Component.literal(text.isEmpty() ? senderName : text),
+                        cmdText,
                         sm.senderUuid(),
                         Component.literal(""),
                         sm.timestamp(),

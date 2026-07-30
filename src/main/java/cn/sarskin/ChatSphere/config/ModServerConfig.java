@@ -20,6 +20,9 @@ public class ModServerConfig {
     public final ModConfigSpec.IntValue backupKeepMax;
     public final ModConfigSpec.BooleanValue preventsChatReports;
     public final ModConfigSpec.ConfigValue<String> bannedWords;
+    public final ModConfigSpec.BooleanValue voiceOfflineStorage;
+    public final ModConfigSpec.IntValue voiceOfflineMaxAgeHours;
+    public final ModConfigSpec.IntValue voiceOfflineMaxPerPlayer;
 
     static {
         Pair<ModServerConfig, ModConfigSpec> pair = new ModConfigSpec.Builder().configure(ModServerConfig::new);
@@ -76,6 +79,17 @@ public class ModServerConfig {
         bannedWords = builder
                 .comment("Banned words/regex patterns (one per line). Messages matching any pattern will be blocked server-side.")
                 .define("bannedWords", "");
+        builder.pop();
+        builder.push("voice");
+        voiceOfflineStorage = builder
+                .comment("Enable offline voice message storage and delivery for private messages and channel members")
+                .define("voiceOfflineStorage", true);
+        voiceOfflineMaxAgeHours = builder
+                .comment("Maximum age in hours for undelivered voice messages before they are deleted")
+                .defineInRange("voiceOfflineMaxAgeHours", 24, 1, 168);
+        voiceOfflineMaxPerPlayer = builder
+                .comment("Maximum number of undelivered voice messages stored per player")
+                .defineInRange("voiceOfflineMaxPerPlayer", 10, 1, 50);
         builder.pop();
     }
 }
